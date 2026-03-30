@@ -16,7 +16,7 @@
 #define DEFAULT_DELAY   200
 #define DEFAULT_TIMEOUT 10
 
-typedef struct {
+typedef struct masterCDT {
     int    width;
     int    height;
     int    delay_ms;
@@ -25,42 +25,45 @@ typedef struct {
     char  *view_path;
     char  *player_paths[MAX_PLAYERS];
     int    n_players;
-} Config;
+    int    read_ends[MAX_PLAYERS];
+} masterCDT;
+
+typedef masterCDT * masterADT;
 
 // Devuelve 0 si OK, -1 si faltan jugadores o hay error
-int parse_args(int argc, char *argv[], Config *cfg) {
-    cfg->width      = DEFAULT_WIDTH;
-    cfg->height     = DEFAULT_HEIGHT;
-    cfg->delay_ms   = DEFAULT_DELAY;
-    cfg->timeout_s  = DEFAULT_TIMEOUT;
-    cfg->seed       = (long)time(NULL);
-    cfg->view_path  = NULL;
-    cfg->n_players  = 0;
+int parse_args(int argc, char *argv[], masterADT master) {
+    master->width      = DEFAULT_WIDTH;
+    master->height     = DEFAULT_HEIGHT;
+    master->delay_ms   = DEFAULT_DELAY;
+    master->timeout_s  = DEFAULT_TIMEOUT;
+    master->seed       = (long)time(NULL);
+    master->view_path  = NULL;
+    master->n_players  = 0;
 
     for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "-w") && i+1 < argc) cfg->width      = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "-h") && i+1 < argc) cfg->height     = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "-d") && i+1 < argc) cfg->delay_ms   = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "-t") && i+1 < argc) cfg->timeout_s  = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "-s") && i+1 < argc) cfg->seed       = atol(argv[++i]);
-        else if (!strcmp(argv[i], "-v") && i+1 < argc) cfg->view_path  = argv[++i];
+        if      (!strcmp(argv[i], "-w") && i+1 < argc) master->width      = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-h") && i+1 < argc) master->height     = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-d") && i+1 < argc) master->delay_ms   = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-t") && i+1 < argc) master->timeout_s  = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-s") && i+1 < argc) master->seed       = atol(argv[++i]);
+        else if (!strcmp(argv[i], "-v") && i+1 < argc) master->view_path  = argv[++i];
         else if (!strcmp(argv[i], "-p")) {
             // consume todo lo que sigue hasta el próximo flag o fin
             while (i+1 < argc && argv[i+1][0] != '-') {
-                if (cfg->n_players >= MAX_PLAYERS) {
+                if (master->n_players >= MAX_PLAYERS) {
                     fprintf(stderr, "Máximo %d jugadores\n", MAX_PLAYERS);
                     return -1;
                 }
-                cfg->player_paths[cfg->n_players++] = argv[++i];
+                master->player_paths[master->n_players++] = argv[++i];
             }
         }
     }
 
     // minimos
-    if (cfg->width  < 10) cfg->width  = 10;
-    if (cfg->height < 10) cfg->height = 10;
+    if (master->width  < 10) master->width  = 10;
+    if (master->height < 10) master->height = 10;
 
-    if (cfg->n_players < 1) {
+    if (master->n_players < 1) {
         fprintf(stderr, "Se necesita al menos un jugador (-p)\n");
         return -1;
     }
@@ -113,26 +116,26 @@ static SyncData *create_sync(int n_players) {
 }
 
 //mi generador de boards segun seed
-static void init_board(GameState *gs, Config *cfg) {
-    srand((unsigned int)cfg->seed);
+static void init_board(GameState *gs, masterADT master) {
+    srand((unsigned int)master->seed);
  
-    for (int i = 0; i < cfg->width * cfg->height; i++)
+    for (int i = 0; i < master->width * master->height; i++)
         gs->board[i] = (char)(rand() % 9 + 1);
  
-    gs->n_players = (unsigned char)cfg->n_players;
+    gs->n_players = (unsigned char)master->n_players;
 }
 
 //donde quiero colocar a los jugadores, evitando colisiones
-static void place_players(GameState *gs, Config *cfg) {
+static void place_players(GameState *gs, masterADT master) {
     int margin = 1;
 
-    for (int i = 0; i < cfg->n_players; i++) {
+    for (int i = 0; i < master->n_players; i++) {
         int col, row;
         int collision;
 
         do {
-            col = margin + rand() % (cfg->width  - 2 * margin);
-            row = margin + rand() % (cfg->height - 2 * margin);
+            col = margin + rand() % (master->width  - 2 * margin);
+            row = margin + rand() % (master->height - 2 * margin);
 
             collision = 0;
             for (int j = 0; j < i; j++) {
@@ -153,7 +156,7 @@ static void place_players(GameState *gs, Config *cfg) {
         snprintf(gs->players[i].name, sizeof(gs->players[i].name),
                  "player%d", i);
 
-        gs->board[row * cfg->width + col] = (char)(-i);
+        gs->board[row * master->width + col] = (char)(-i);
     }
 }
 
@@ -190,8 +193,7 @@ static pid_t spawn_process(char *path, int width, int height,
 }
 
 //finalizacion: esperar hijos, imprimir resultados, cerrar pipes, destruir semáforos, eliminar SHMs
-static void cleanup(GameState *gs, SyncData *sd,
-                    int read_ends[], int n_players,
+static void cleanup(GameState *gs, SyncData *sd, masterADT master,
                     pid_t pids[], int total_pids) {
  
     // esperar hijos e imprimir resultado
@@ -215,8 +217,8 @@ static void cleanup(GameState *gs, SyncData *sd,
     }
  
     // cerrar pipes
-    for (int i = 0; i < n_players; i++)
-        close(read_ends[i]);
+    for (int i = 0; i < master->n_players; i++)
+        close(master->read_ends[i]);
  
     // destruir semáforos
     sem_destroy(&sd->view_ready);
@@ -224,7 +226,7 @@ static void cleanup(GameState *gs, SyncData *sd,
     sem_destroy(&sd->no_writer);
     sem_destroy(&sd->state_mutex);
     sem_destroy(&sd->readers_mutex);
-    for (int i = 0; i < n_players; i++)
+    for (int i = 0; i < master->n_players; i++)
         sem_destroy(&sd->player_ack[i]);
  
     // desmapear y eliminar SHMs
@@ -234,39 +236,57 @@ static void cleanup(GameState *gs, SyncData *sd,
     shm_unlink(SHM_SYNC);
 }
 
+static int game_start(masterADT master){
+    struct timeval tv = {master->timeout_s, 0};
+    time_t last_time = time(NULL);
+    
+    while(1){
+
+        //TODO: Sincronizacion de vista
+
+        int elapsed = time(null) - last_time;
+        tv.tv_sec = m->timeout - elapsed;
+
+        int ready = select(m->pipes_max_fd + 1, &m->pipes_set, NULL, NULL, &tv);
+
+        //TODO: Hacer los tres casos posibles para ready, -1 0 o mayor a 0
+        //Implementar select
+    }
+}
+
 int main(int argc, char *argv[]) {
  
-    Config cfg;
-    if (parse_args(argc, argv, &cfg) == -1)
+    masterCDT masterData;
+    masterADT master = &masterData;
+    if (parse_args(argc, argv, master) == -1)
         return 1;
  
-    GameState *gs = create_game_state(cfg.width, cfg.height);
+    GameState *gs = create_game_state(master->width, master->height);
  
-    SyncData *sd = create_sync(cfg.n_players);
+    SyncData *sd = create_sync(master->n_players);
  
-    init_board(gs, &cfg);
+    init_board(gs, master);
  
-    place_players(gs, &cfg);
+    place_players(gs, master);
  
     // crear pipes: uno por jugador
     // read_ends[i]  -> master lee movimientos
     // write_ends[i] -> se convierte en stdout del hijo
-    int read_ends[MAX_PLAYERS];
     int write_ends[MAX_PLAYERS];
  
-    for (int i = 0; i < cfg.n_players; i++) {
+    for (int i = 0; i < master->n_players; i++) {
         int fds[2];
         if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
-        read_ends[i]  = fds[0];
+        master->read_ends[i]  = fds[0];
         write_ends[i] = fds[1];
     }
  
     pid_t pids[MAX_PLAYERS + 1];
     int   total_pids = 0;
  
-    for (int i = 0; i < cfg.n_players; i++) {
-        pids[total_pids] = spawn_process(cfg.player_paths[i],
-                                         cfg.width, cfg.height,
+    for (int i = 0; i < master->n_players; i++) {
+        pids[total_pids] = spawn_process(master->player_paths[i],
+                                         master->width, master->height,
                                          write_ends[i]);
         gs->players[i].pid = pids[total_pids];
         total_pids++;
@@ -275,14 +295,14 @@ int main(int argc, char *argv[]) {
         close(write_ends[i]);
     }
  
-    if (cfg.view_path) {
-        pids[total_pids++] = spawn_process(cfg.view_path,
-                                           cfg.width, cfg.height,
+    if (master->view_path) {
+        pids[total_pids++] = spawn_process(master->view_path,
+                                           master->width, master->height,
                                            -1);
     }
  
-    //game loop iría acá
+    
  
-    cleanup(gs, sd, read_ends, cfg.n_players, pids, total_pids);
+    cleanup(gs, sd, master, pids, total_pids);
     return 0;
 }
