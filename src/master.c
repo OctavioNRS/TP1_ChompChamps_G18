@@ -1,9 +1,15 @@
-// master.c  (sólo la parte de argumentos)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>    
+#include <sys/mman.h>   
+#include <sys/stat.h>  
+#include <unistd.h>
 #include "shared.h"
+#include <sys/wait.h>
+
 
 #define DEFAULT_WIDTH   10
 #define DEFAULT_HEIGHT  10
@@ -50,7 +56,7 @@ int parse_args(int argc, char *argv[], Config *cfg) {
         }
     }
 
-    // mínimos
+    // minimos
     if (cfg->width  < 10) cfg->width  = 10;
     if (cfg->height < 10) cfg->height = 10;
 
@@ -104,4 +110,179 @@ static SyncData *create_sync(int n_players) {
         sem_init(&sd->player_ack[i], 1, 1); 
 
     return sd;
+}
+
+//mi generador de boards segun seed
+static void init_board(GameState *gs, Config *cfg) {
+    srand((unsigned int)cfg->seed);
+ 
+    for (int i = 0; i < cfg->width * cfg->height; i++)
+        gs->board[i] = (char)(rand() % 9 + 1);
+ 
+    gs->n_players = (unsigned char)cfg->n_players;
+}
+
+//donde quiero colocar a los jugadores, evitando colisiones
+static void place_players(GameState *gs, Config *cfg) {
+    int margin = 1;
+
+    for (int i = 0; i < cfg->n_players; i++) {
+        int col, row;
+        int collision;
+
+        do {
+            col = margin + rand() % (cfg->width  - 2 * margin);
+            row = margin + rand() % (cfg->height - 2 * margin);
+
+            collision = 0;
+            for (int j = 0; j < i; j++) {
+                if (gs->players[j].x == (unsigned short)col &&
+                    gs->players[j].y == (unsigned short)row)
+                    collision = 1;
+            }
+        } while (collision);
+
+        gs->players[i].x             = (unsigned short)col;
+        gs->players[i].y             = (unsigned short)row;
+        gs->players[i].score         = 0;
+        gs->players[i].valid_moves   = 0;
+        gs->players[i].invalid_moves = 0;
+        gs->players[i].blocked       = false;
+        gs->players[i].pid           = 0;
+
+        snprintf(gs->players[i].name, sizeof(gs->players[i].name),
+                 "player%d", i);
+
+        gs->board[row * cfg->width + col] = (char)(-i);
+    }
+}
+
+//fork + exec de los jugadores, guardando su PID
+static pid_t spawn_process(char *path, int width, int height,
+                           int write_fd)  // -1 si no hay redirección
+{
+    pid_t pid = fork();
+    if (pid == -1) { perror("master: fork"); exit(1); }
+ 
+    if (pid == 0) {
+        // hijo
+ 
+        if (write_fd != -1) {
+            // redirigir write_fd -> stdout (fd 1)
+            // así el jugador escribe en el pipe sin saberlo
+            if (dup2(write_fd, STDOUT_FILENO) == -1) {
+                perror("master: dup2"); exit(1);
+            }
+            close(write_fd);
+        }
+ 
+        char w_str[16], h_str[16];
+        snprintf(w_str, sizeof(w_str), "%d", width);
+        snprintf(h_str, sizeof(h_str), "%d", height);
+ 
+        char *args[] = { path, w_str, h_str, NULL };
+        execv(path, args);
+        perror("master: execv");
+        exit(1);
+    }
+ 
+    return pid;
+}
+
+//finalizacion: esperar hijos, imprimir resultados, cerrar pipes, destruir semáforos, eliminar SHMs
+static void cleanup(GameState *gs, SyncData *sd,
+                    int read_ends[], int n_players,
+                    pid_t pids[], int total_pids) {
+ 
+    // esperar hijos e imprimir resultado
+    for (int i = 0; i < total_pids; i++) {
+        if (pids[i] <= 0) continue;
+        int status;
+        waitpid(pids[i], &status, 0);
+ 
+        if (WIFEXITED(status))
+            printf("pid %d: exit(%d)\n", pids[i], WEXITSTATUS(status));
+        else if (WIFSIGNALED(status))
+            printf("pid %d: signal %d\n", pids[i], WTERMSIG(status));
+    }
+ 
+    // imprimir puntajes
+    printf("\n=== resultado final ===\n");
+    for (int i = 0; i < (int)gs->n_players; i++) {
+        PlayerInfo *p = &gs->players[i];
+        printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
+               i, p->name, p->score, p->valid_moves, p->invalid_moves);
+    }
+ 
+    // cerrar pipes
+    for (int i = 0; i < n_players; i++)
+        close(read_ends[i]);
+ 
+    // destruir semáforos
+    sem_destroy(&sd->view_ready);
+    sem_destroy(&sd->view_done);
+    sem_destroy(&sd->no_writer);
+    sem_destroy(&sd->state_mutex);
+    sem_destroy(&sd->readers_mutex);
+    for (int i = 0; i < n_players; i++)
+        sem_destroy(&sd->player_ack[i]);
+ 
+    // desmapear y eliminar SHMs
+    munmap(gs, gs_size(gs->width, gs->height));
+    munmap(sd, sizeof(SyncData));
+    shm_unlink(SHM_STATE);
+    shm_unlink(SHM_SYNC);
+}
+
+int main(int argc, char *argv[]) {
+ 
+    Config cfg;
+    if (parse_args(argc, argv, &cfg) == -1)
+        return 1;
+ 
+    GameState *gs = create_game_state(cfg.width, cfg.height);
+ 
+    SyncData *sd = create_sync(cfg.n_players);
+ 
+    init_board(gs, &cfg);
+ 
+    place_players(gs, &cfg);
+ 
+    // crear pipes: uno por jugador
+    // read_ends[i]  -> master lee movimientos
+    // write_ends[i] -> se convierte en stdout del hijo
+    int read_ends[MAX_PLAYERS];
+    int write_ends[MAX_PLAYERS];
+ 
+    for (int i = 0; i < cfg.n_players; i++) {
+        int fds[2];
+        if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
+        read_ends[i]  = fds[0];
+        write_ends[i] = fds[1];
+    }
+ 
+    pid_t pids[MAX_PLAYERS + 1];
+    int   total_pids = 0;
+ 
+    for (int i = 0; i < cfg.n_players; i++) {
+        pids[total_pids] = spawn_process(cfg.player_paths[i],
+                                         cfg.width, cfg.height,
+                                         write_ends[i]);
+        gs->players[i].pid = pids[total_pids];
+        total_pids++;
+ 
+        // padre cierra el write_end: solo el hijo lo necesita
+        close(write_ends[i]);
+    }
+ 
+    if (cfg.view_path) {
+        pids[total_pids++] = spawn_process(cfg.view_path,
+                                           cfg.width, cfg.height,
+                                           -1);
+    }
+ 
+    //game loop iría acá
+ 
+    cleanup(gs, sd, read_ends, cfg.n_players, pids, total_pids);
+    return 0;
 }
