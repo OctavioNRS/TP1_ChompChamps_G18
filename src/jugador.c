@@ -1,40 +1,54 @@
-// This is a personal academic project. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
-     
-#include "include/playerADT.h"
+#include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <semaphore.h>
+#include "shared.h"
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
 
-    srand((unsigned int)time(NULL));
-
-    PlayerADT p = init_player(argc, argv);
-
-    if (p == NULL) {
-        return -1;
+    //recibir width y height sin flags
+    if (argc < 3) {
+        fprintf(stderr, "jugador: uso: %s <width> <height>\n", argv[0]);
+        return 1;
     }
-    if(init_shm(p) == -1){
-        free(p);
-        return -1;
-    }
 
-	while (1) {
+    int width  = atoi(argv[1]);
+    int height = atoi(argv[2]);
 
-        // Guardar estado actual
-        get_state_snapshot(p);
+    // calcular tamaño total del estado (header + tablero)
+    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
 
-        // Verificar si el juego terminó o si estamos bloqueados
-        if (!still_playing(p)) {
-            break;
-        }
-        
-        // Elegir y enviar movimiento (aleatorio entre 0-7, las 8 direcciones)
-        unsigned char move = rand() % 8;
+    // abrir /game_state
+    int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
+    if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }
 
-        send_movement(p, move);
+    GameState *gs = mmap(NULL, total,
+                         PROT_READ, MAP_SHARED, fd1, 0);
+    if (gs == MAP_FAILED) { perror("jugador: mmap game_state"); return 1; }
+    close(fd1);
 
-    }
-    free(p);
+    //abrir /game_sync
+    int fd2 = shm_open(SHM_SYNC, O_RDONLY, 0666);
+    if (fd2 == -1) { perror("jugador: shm_open game_sync"); return 1; }
+
+    SyncData *sd = mmap(NULL, sizeof(SyncData),
+                        PROT_READ, MAP_SHARED, fd2, 0);
+    if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
+    close(fd2);
+
+    // verificar que la conexión fue exitosa
+    fprintf(stderr, "jugador: conectado — tablero %dx%d  game_over=%d\n",
+            gs->width, gs->height, gs->game_over);
+
+    // aca ira el loop de movimientos
+    // (se implementa en la próxima etapa)
+
+    // limpieza
+    munmap(gs, total);
+    munmap(sd, sizeof(SyncData));
     return 0;
 }

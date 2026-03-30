@@ -34,19 +34,13 @@ typedef struct {
 
 // ZZZ — semáforos de sincronización (en /game_sync)
 typedef struct {
-    sem_t view_ready;      
-    sem_t view_done;       
-    sem_t no_writer;       
-    sem_t state_mutex;     
-    sem_t readers_mutex;   
-    unsigned int readers;  
-    sem_t player_ack[MAX_PLAYERS]; 
+    sem_t view_ready;      // A: master → vista (hay cambios)
+    sem_t view_done;       // B: vista → master (terminó de imprimir)
+    sem_t no_writer;       // C: previene inanición del escritor
+    sem_t state_mutex;     // D: mutex del estado
+    sem_t readers_mutex;   // E: mutex para el contador F
+    unsigned int readers;  // F: cantidad de jugadores leyendo
+    sem_t player_ack[MAX_PLAYERS]; // G[i]: master → jugador i (movimiento procesado)
 } SyncData;
-
-
-void reader_enter(SyncData *sd);
-void reader_leave(SyncData *sd);
-void writer_enter(SyncData *sd);
-void writer_leave(SyncData *sd);
 
 #endif
