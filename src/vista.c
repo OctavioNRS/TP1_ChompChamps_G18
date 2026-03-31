@@ -35,9 +35,8 @@ static void draw_board(GameState *gs) {
     int w = gs->width;
     int h = gs->height;
 
-    // borde superior
     printf("+");
-    for (int x = 0; x < w; x++) printf("--");
+    for (int x = 0; x < w; x++) printf("---");
     printf("+\n");
 
     for (int y = 0; y < h; y++) {
@@ -54,43 +53,54 @@ static void draw_board(GameState *gs) {
             }
 
             if (player_here >= 0) {
-                printf("%s" BOLD "%2d" RESET, player_colors[player_here], player_here);
+                // mostrar P1, P2, P3... con color del jugador
+                printf("%s" BOLD "P%d" RESET " ", player_colors[player_here], player_here + 1);
             } else if (cell > 0) {
-                // celda libre: mostrar recompensa en blanco
-                printf(" %d", cell);
+                // celda libre: mostrar recompensa
+                printf(" %d ", cell);
             } else {
-                // celda capturada: mostrar punto con color del dueño
+                // celda capturada: mostrar valor negativo con color del dueño
                 int owner = -cell;
-                printf("%s ." RESET, player_colors[owner]);
+                if (owner == 0)
+                    printf("%s %d " RESET, player_colors[owner], 0);
+                else
+                    printf("%s-%d " RESET, player_colors[owner], owner);
             }
         }
         printf("|\n");
     }
 
-    // borde inferior
     printf("+");
-    for (int x = 0; x < w; x++) printf("--");
+    for (int x = 0; x < w; x++) printf("---");
     printf("+\n");
 }
 
 static void draw_players(GameState *gs) {
+    // crear array de indices ordenados por puntaje (mayor a menor)
+    int order[MAX_PLAYERS];
+    for (int i = 0; i < gs->n_players; i++)
+        order[i] = i;
+
+    // ordenar por puntaje descendente (bubble sort simple)
+    for (int i = 0; i < gs->n_players - 1; i++) {
+        for (int j = 0; j < gs->n_players - 1 - i; j++) {
+            if (gs->players[order[j]].score < gs->players[order[j+1]].score) {
+                int tmp = order[j];
+                order[j] = order[j+1];
+                order[j+1] = tmp;
+            }
+        }
+    }
+
     printf("\n=== JUGADORES ===\n");
     for (int i = 0; i < gs->n_players; i++) {
-        PlayerInfo *p = &gs->players[i];
-        printf("%s" BOLD "[%d] %s%s" RESET "\n",
-               player_colors[i], i, p->name,
+        int idx = order[i];
+        PlayerInfo *p = &gs->players[idx];
+        printf("%s" BOLD "P%d %s: (%u)" RESET "%s\n",
+               player_colors[idx], idx + 1, p->name, p->score,
                p->blocked ? " (bloqueado)" : "");
-        printf("    pos:       (%u, %u)\n",  p->x, p->y);
-        printf("    puntaje:   %u\n",         p->score);
-        printf("    validos:   %u  invalidos: %u\n",
-               p->valid_moves, p->invalid_moves);
-    }
-
-    if (gs->game_over) {
-        printf(BOLD "\n*** JUEGO TERMINADO ***\n" RESET);
     }
 }
-
 
 int main(int argc, char *argv[]) {
 
