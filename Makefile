@@ -2,7 +2,7 @@ CC     = gcc
 CFLAGS = -Wall -Wextra -std=c11 -g
 LIBS   = -lrt -pthread
 
-all: vista jugador
+all: master vista jugador
 
 master: src/master.c src/shared.c src/shared.h
 	$(CC) $(CFLAGS) -o master src/master.c src/shared.c $(LIBS)
@@ -14,7 +14,7 @@ jugador: src/jugador.c src/shared.h
 	$(CC) $(CFLAGS) -o jugador src/jugador.c $(LIBS)
 
 run: all
-	./ChompChamps -v ./vista -p ./jugador
+	./master -v ./vista -p ./jugador
 
 clean:
 	rm -f master vista jugador
