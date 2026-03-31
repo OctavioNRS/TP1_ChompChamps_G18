@@ -43,4 +43,9 @@ typedef struct {
     sem_t player_ack[MAX_PLAYERS]; // G[i]: master → jugador i (movimiento procesado)
 } SyncData;
 
+void reader_enter(SyncData *sd);
+void reader_leave(SyncData *sd);
+void writer_enter(SyncData *sd);
+void writer_leave(SyncData *sd);
+
 #endif

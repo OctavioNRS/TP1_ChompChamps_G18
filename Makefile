@@ -4,8 +4,8 @@ LIBS   = -lrt -pthread
 
 all: vista jugador
 
-master: src/master.c src/shared.h
-	$(CC) $(CFLAGS) -o master src/master.c $(LIBS)
+master: src/master.c src/shared.c src/shared.h
+	$(CC) $(CFLAGS) -o master src/master.c src/shared.c $(LIBS)
 
 vista: src/vista.c src/shared.h
 	$(CC) $(CFLAGS) -o vista src/vista.c $(LIBS)
