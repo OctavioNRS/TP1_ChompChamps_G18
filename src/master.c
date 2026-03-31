@@ -3,10 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <fcntl.h>    
-#include <sys/mman.h>   
-#include <sys/stat.h>  
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <sys/select.h>
 #include "shared.h"
 #include <sys/wait.h>
 
@@ -25,7 +26,12 @@ typedef struct masterCDT {
     char  *view_path;
     char  *player_paths[MAX_PLAYERS];
     int    n_players;
-    int    read_ends[MAX_PLAYERS];
+    int    pipes[MAX_PLAYERS];
+    int    pipes_max_fd;
+    fd_set pipes_set;
+    GameState *game_state;
+    SyncData  *game_sync;
+    int        last_player;   // índice del último jugador que movió válido
 } masterCDT;
 
 typedef masterCDT * masterADT;
@@ -102,15 +108,15 @@ static SyncData *create_sync(int n_players) {
     if (sd == MAP_FAILED) { perror("master: mmap game_sync"); exit(1); }
     close(fd);
 
-    sem_init(&sd->view_ready,    1, 0); 
-    sem_init(&sd->view_done,     1, 0); 
-    sem_init(&sd->no_writer,     1, 1); 
-    sem_init(&sd->state_mutex,   1, 1); 
-    sem_init(&sd->readers_mutex, 1, 1); 
-    sd->readers = 0;                    
+    sem_init(&sd->view_ready,    1, 0);
+    sem_init(&sd->view_done,     1, 0);
+    sem_init(&sd->no_writer,     1, 1);
+    sem_init(&sd->state_mutex,   1, 1);
+    sem_init(&sd->readers_mutex, 1, 1);
+    sd->readers = 0;
 
     for (int i = 0; i < n_players; i++)
-        sem_init(&sd->player_ack[i], 1, 1); 
+        sem_init(&sd->player_ack[i], 1, 1);
 
     return sd;
 }
@@ -118,10 +124,10 @@ static SyncData *create_sync(int n_players) {
 //mi generador de boards segun seed
 static void init_board(GameState *gs, masterADT master) {
     srand((unsigned int)master->seed);
- 
+
     for (int i = 0; i < master->width * master->height; i++)
         gs->board[i] = (char)(rand() % 9 + 1);
- 
+
     gs->n_players = (unsigned char)master->n_players;
 }
 
@@ -166,10 +172,10 @@ static pid_t spawn_process(char *path, int width, int height,
 {
     pid_t pid = fork();
     if (pid == -1) { perror("master: fork"); exit(1); }
- 
+
     if (pid == 0) {
         // hijo
- 
+
         if (write_fd != -1) {
             // redirigir write_fd -> stdout (fd 1)
             // así el jugador escribe en el pipe sin saberlo
@@ -178,36 +184,36 @@ static pid_t spawn_process(char *path, int width, int height,
             }
             close(write_fd);
         }
- 
+
         char w_str[16], h_str[16];
         snprintf(w_str, sizeof(w_str), "%d", width);
         snprintf(h_str, sizeof(h_str), "%d", height);
- 
+
         char *args[] = { path, w_str, h_str, NULL };
         execv(path, args);
         perror("master: execv");
         exit(1);
     }
- 
+
     return pid;
 }
 
 //finalizacion: esperar hijos, imprimir resultados, cerrar pipes, destruir semáforos, eliminar SHMs
 static void cleanup(GameState *gs, SyncData *sd, masterADT master,
                     pid_t pids[], int total_pids) {
- 
+
     // esperar hijos e imprimir resultado
     for (int i = 0; i < total_pids; i++) {
         if (pids[i] <= 0) continue;
         int status;
         waitpid(pids[i], &status, 0);
- 
+
         if (WIFEXITED(status))
             printf("pid %d: exit(%d)\n", pids[i], WEXITSTATUS(status));
         else if (WIFSIGNALED(status))
             printf("pid %d: signal %d\n", pids[i], WTERMSIG(status));
     }
- 
+
     // imprimir puntajes
     printf("\n=== resultado final ===\n");
     for (int i = 0; i < (int)gs->n_players; i++) {
@@ -215,11 +221,13 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
         printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
                i, p->name, p->score, p->valid_moves, p->invalid_moves);
     }
- 
-    // cerrar pipes
-    for (int i = 0; i < master->n_players; i++)
-        close(master->read_ends[i]);
- 
+
+    // cerrar pipes (pueden estar en -1 si el jugador fue bloqueado durante el juego)
+    for (int i = 0; i < master->n_players; i++) {
+        if (master->pipes[i] != -1)
+            close(master->pipes[i]);
+    }
+
     // destruir semáforos
     sem_destroy(&sd->view_ready);
     sem_destroy(&sd->view_done);
@@ -228,7 +236,7 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     sem_destroy(&sd->readers_mutex);
     for (int i = 0; i < master->n_players; i++)
         sem_destroy(&sd->player_ack[i]);
- 
+
     // desmapear y eliminar SHMs
     munmap(gs, gs_size(gs->width, gs->height));
     munmap(sd, sizeof(SyncData));
@@ -236,73 +244,203 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     shm_unlink(SHM_SYNC);
 }
 
-static int game_start(masterADT master){
-    struct timeval tv = {master->timeout_s, 0};
-    time_t last_time = time(NULL);
-    
-    while(1){
-
-        //TODO: Sincronizacion de vista
-
-        int elapsed = time(null) - last_time;
-        tv.tv_sec = m->timeout - elapsed;
-
-        int ready = select(m->pipes_max_fd + 1, &m->pipes_set, NULL, NULL, &tv);
-
-        //TODO: Hacer los tres casos posibles para ready, -1 0 o mayor a 0
-        //Implementar select
+// Reconstruye pipes_set y pipes_max_fd a partir de los pipes activos
+static void build_pipes_set(masterADT m) {
+    FD_ZERO(&m->pipes_set);
+    m->pipes_max_fd = 0;
+    for (int i = 0; i < m->n_players; i++) {
+        if (m->pipes[i] == -1) continue;
+        FD_SET(m->pipes[i], &m->pipes_set);
+        if (m->pipes[i] > m->pipes_max_fd)
+            m->pipes_max_fd = m->pipes[i];
     }
 }
 
+// Devuelve 1 si todos los jugadores están bloqueados
+static int no_player_can_move(masterADT m) {
+    reader_enter(m->game_sync);
+    int all_blocked = 1;
+    for (int i = 0; i < m->n_players; i++) {
+        if (!m->game_state->players[i].blocked) {
+            all_blocked = 0;
+            break;
+        }
+    }
+    reader_leave(m->game_sync);
+    return all_blocked;
+}
+
+// Marca al jugador i como bloqueado y cierra su pipe
+static void pipe_set_blocked(masterADT m, int i) {
+    writer_enter(m->game_sync);
+    m->game_state->players[i].blocked = true;
+    writer_leave(m->game_sync);
+    close(m->pipes[i]);
+    m->pipes[i] = -1;
+}
+
+// Lee el movimiento del jugador i, lo valida y lo aplica.
+// Devuelve 0 si el movimiento fue válido, -1 si no.
+static int check_player(masterADT m, int i) {
+    char move;
+    if (read(m->pipes[i], &move, 1) <= 0) {
+        pipe_set_blocked(m, i);
+        return -1;
+    }
+
+    reader_enter(m->game_sync);
+    int x = m->game_state->players[i].x;
+    int y = m->game_state->players[i].y;
+    reader_leave(m->game_sync);
+
+    int nx = x, ny = y;
+    if      (move == 'U' || move == 'u') ny--;
+    else if (move == 'D' || move == 'd') ny++;
+    else if (move == 'L' || move == 'l') nx--;
+    else if (move == 'R' || move == 'r') nx++;
+    else {
+        writer_enter(m->game_sync);
+        m->game_state->players[i].invalid_moves++;
+        writer_leave(m->game_sync);
+        return -1;
+    }
+
+    // Validar límites
+    if (nx < 0 || nx >= m->width || ny < 0 || ny >= m->height) {
+        writer_enter(m->game_sync);
+        m->game_state->players[i].invalid_moves++;
+        writer_leave(m->game_sync);
+        return -1;
+    }
+
+    int idx = ny * m->width + nx;
+    writer_enter(m->game_sync);
+    char cell = m->game_state->board[idx];
+    if (cell <= 0) {
+        // celda ocupada, movimiento inválido
+        m->game_state->players[i].invalid_moves++;
+        writer_leave(m->game_sync);
+        return -1;
+    }
+    // Aplicar movimiento
+    m->game_state->players[i].score += (unsigned int)cell;
+    m->game_state->board[idx] = (char)(-i);
+    m->game_state->players[i].x = (unsigned short)nx;
+    m->game_state->players[i].y = (unsigned short)ny;
+    m->game_state->players[i].valid_moves++;
+    writer_leave(m->game_sync);
+    return 0;
+}
+
+static int game_start(masterADT m) {
+    struct timeval tv = {m->timeout_s, 0};
+    time_t last_time = time(NULL);
+
+    while (1) {
+        // Reconstruir fd_set con los pipes aún activos
+        build_pipes_set(m);
+
+        // Actualizar timeout
+        int elapsed = (int)(time(NULL) - last_time);
+        tv.tv_sec = m->timeout_s - elapsed;
+
+        // Seleccionar siguiente jugador, pipes_set queda solo con los fd que no estan bloqueados
+        int ready = select(m->pipes_max_fd + 1, &m->pipes_set, NULL, NULL, &tv);
+
+        if (no_player_can_move(m) || ready == 0 || elapsed >= m->timeout_s) {
+            writer_enter(m->game_sync);
+            m->game_state->game_over = true;
+            writer_leave(m->game_sync);
+            return 0;
+        }
+
+        if (ready < 0) {
+            writer_enter(m->game_sync);
+            m->game_state->game_over = true;
+            writer_leave(m->game_sync);
+            perror("MASTER::GAME_START: Error with select");
+            return -1;
+        }
+
+        // Si llegue aca entonces ready > 0
+        // Arrancamos desde last_player + 1 para no favorecer siempre al jugador 0
+        for (unsigned int k = 0; k < (unsigned int)m->n_players; k++) {
+            unsigned int i = ((unsigned int)m->last_player + 1 + k) % (unsigned int)m->n_players;
+
+            reader_enter(m->game_sync);
+            bool is_blocked = m->game_state->players[i].blocked;
+            reader_leave(m->game_sync);
+
+            if (m->pipes[i] == -1 || is_blocked)    // Ignorar
+                continue;
+
+            if (FD_ISSET(m->pipes[i], &m->pipes_set)) {
+                if (!check_player(m, i)) {       // si es valido
+                    last_time = time(NULL);       // resetear timeout
+                    m->last_player = (int)i;      // recordar quién movió
+                }
+            } else {
+                // No respondió a tiempo, marcar como bloqueado
+                pipe_set_blocked(m, i);
+            }
+        }
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
- 
+
     masterCDT masterData;
     masterADT master = &masterData;
     if (parse_args(argc, argv, master) == -1)
         return 1;
- 
+
     GameState *gs = create_game_state(master->width, master->height);
- 
+    master->game_state = gs;
+
     SyncData *sd = create_sync(master->n_players);
- 
+    master->game_sync = sd;
+
     init_board(gs, master);
- 
+
     place_players(gs, master);
- 
+
     // crear pipes: uno por jugador
-    // read_ends[i]  -> master lee movimientos
+    // pipes[i]     -> master lee movimientos
     // write_ends[i] -> se convierte en stdout del hijo
     int write_ends[MAX_PLAYERS];
- 
+
     for (int i = 0; i < master->n_players; i++) {
         int fds[2];
         if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
-        master->read_ends[i]  = fds[0];
-        write_ends[i] = fds[1];
+        master->pipes[i] = fds[0];
+        write_ends[i]    = fds[1];
     }
- 
+
     pid_t pids[MAX_PLAYERS + 1];
     int   total_pids = 0;
- 
+
     for (int i = 0; i < master->n_players; i++) {
         pids[total_pids] = spawn_process(master->player_paths[i],
                                          master->width, master->height,
                                          write_ends[i]);
         gs->players[i].pid = pids[total_pids];
         total_pids++;
- 
+
         // padre cierra el write_end: solo el hijo lo necesita
         close(write_ends[i]);
     }
- 
+
     if (master->view_path) {
         pids[total_pids++] = spawn_process(master->view_path,
                                            master->width, master->height,
                                            -1);
     }
- 
-    
- 
+
+    master->last_player = master->n_players - 1;  // primera iteración arranca en jugador 0
+    game_start(master);
+
     cleanup(gs, sd, master, pids, total_pids);
     return 0;
 }
