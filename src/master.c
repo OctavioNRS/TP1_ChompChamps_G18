@@ -77,7 +77,7 @@ int parse_args(int argc, char *argv[], masterADT master) {
     return 0;
 }
 static size_t gs_size(int w, int h) {
-    return sizeof(GameState) + (size_t)(w * h) * sizeof(char);
+    return sizeof(GameState) + ((size_t)w * (size_t)h) * sizeof(char);
 }
 
 static GameState *create_game_state(int width, int height) {
@@ -295,8 +295,8 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     printf("\n=== resultado final ===\n");
     for (int i = 0; i < (int)gs->n_players; i++) {
         PlayerInfo *p = &gs->players[i];
-        printf("  [%d] %s  score=%u  invalid=%u  valid=%u\n",
-               i, p->name, p->score, p->invalid_moves, p->valid_moves);
+        printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
+               i, p->name, p->score, p->valid_moves, p->invalid_moves);
     }
 
     // imprimir ganador
@@ -495,7 +495,7 @@ static int game_start(masterADT m) {
                     };
                     nanosleep(&ts, NULL);
                 } else {
-                    if (m->pipes[i] == -1 && m->view_path) {
+                    if (m->view_path) {
                         sem_post(&m->game_sync->view_ready);
                         sem_wait(&m->game_sync->view_done);
                     }

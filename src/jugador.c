@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
-    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
+    size_t total = sizeof(GameState) + ((size_t)width * (size_t)height) * sizeof(char);
 
     int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
     if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }

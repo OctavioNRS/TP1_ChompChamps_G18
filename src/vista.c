@@ -97,8 +97,9 @@ static void draw_players(GameState *gs) {
     for (int i = 0; i < gs->n_players; i++) {
         int idx = order[i];
         PlayerInfo *p = &gs->players[idx];
-        printf("%s" BOLD "P%d %s: (%u)" RESET "%s\n",
+        printf("%s" BOLD "P%d %s: (%u) (validos: %d) (invalidos: %d) " RESET "%s\n",
                player_colors[idx], idx, p->name, p->score,
+               p->valid_moves, p->invalid_moves,
                p->blocked ? " (bloqueado)" : "");
     }
 }
@@ -112,7 +113,7 @@ int main(int argc, char *argv[]) {
 
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
-    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
+    size_t total = sizeof(GameState) + ((size_t)width * (size_t)height) * sizeof(char);
 
     // abrir shm estado (solo lectura)
     int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
