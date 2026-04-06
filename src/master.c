@@ -169,7 +169,9 @@ static void place_players(GameState *gs, masterADT master) {
 
 //fork + exec de los jugadores, guardando su PID
 static pid_t spawn_process(char *path, int width, int height,
-                           int write_fd)  // -1 si no hay redirección
+                           int write_fd,        // -1 si no hay redirección
+                           int *read_fds,       // array de read-ends a cerrar en el hijo
+                           int n_read_fds)
 {
     pid_t pid = fork();
     if (pid == -1) { perror("master: fork"); exit(1); }
@@ -181,9 +183,17 @@ static pid_t spawn_process(char *path, int width, int height,
             // redirigir write_fd -> stdout (fd 1)
             // así el jugador escribe en el pipe sin saberlo
             if (dup2(write_fd, STDOUT_FILENO) == -1) {
-                perror("master: dup2"); exit(1);
+                perror("master: dup2"); 
+                close(write_fd);
+                exit(1);
             }
             close(write_fd);
+        }
+
+        // cerrar todos los read-ends heredados (no le pertenecen a este hijo)
+        for (int k = 0; k < n_read_fds; k++) {
+            if (read_fds[k] != -1)
+                close(read_fds[k]);
         }
 
         char w_str[16], h_str[16];
@@ -245,24 +255,41 @@ static void print_winner(GameState *gs) {
 static void cleanup(GameState *gs, SyncData *sd, masterADT master,
                     pid_t pids[], int total_pids) {
 
+    // guardar tamaño antes de desmapear
+    size_t gs_total = gs_size(gs->width, gs->height);
+
     // esperar hijos e imprimir resultado
+    // los primeros n_players son jugadores; el último (si existe) es la vista
     for (int i = 0; i < total_pids; i++) {
         if (pids[i] <= 0) continue;
         int status;
         waitpid(pids[i], &status, 0);
 
-        if (WIFEXITED(status))
-            printf("pid %d: exit(%d)\n", pids[i], WEXITSTATUS(status));
-        else if (WIFSIGNALED(status))
-            printf("pid %d: signal %d\n", pids[i], WTERMSIG(status));
+        int is_player = (i < master->n_players);
+
+        if (WIFEXITED(status)) {
+            if (is_player)
+                printf("pid %d (jugador %d): exit(%d) score=%u\n",
+                       (int)pids[i], i, WEXITSTATUS(status),
+                       gs->players[i].score);
+            else
+                printf("pid %d: exit(%d)\n", (int)pids[i], WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            if (is_player)
+                printf("pid %d (jugador %d): signal %d score=%u\n",
+                       (int)pids[i], i, WTERMSIG(status),
+                       gs->players[i].score);
+            else
+                printf("pid %d: signal %d\n", (int)pids[i], WTERMSIG(status));
+        }
     }
 
     // imprimir puntajes
     printf("\n=== resultado final ===\n");
     for (int i = 0; i < (int)gs->n_players; i++) {
         PlayerInfo *p = &gs->players[i];
-        printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
-               i, p->name, p->score, p->valid_moves, p->invalid_moves);
+        printf("  [%d] %s  score=%u  invalid=%u  valid=%u\n",
+               i, p->name, p->score, p->invalid_moves, p->valid_moves);
     }
 
     // imprimir ganador
@@ -284,7 +311,7 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
         sem_destroy(&sd->player_ack[i]);
 
     // desmapear y eliminar SHMs
-    munmap(gs, gs_size(gs->width, gs->height));
+    munmap(gs, gs_total);
     munmap(sd, sizeof(SyncData));
     shm_unlink(SHM_STATE);
     shm_unlink(SHM_SYNC);
@@ -490,6 +517,10 @@ int main(int argc, char *argv[]) {
 
     place_players(gs, master);
 
+    // inicializar pipes a -1 (indica pipe cerrado/no asignado)
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        master->pipes[i] = -1;
+
     // crear pipes: uno por jugador
     // pipes[i]     -> master lee movimientos
     // write_ends[i] -> se convierte en stdout del hijo
@@ -508,7 +539,9 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < master->n_players; i++) {
         pids[total_pids] = spawn_process(master->player_paths[i],
                                          master->width, master->height,
-                                         write_ends[i]);
+                                         write_ends[i],
+                                         master->pipes,
+                                         master->n_players);
         gs->players[i].pid = pids[total_pids];
         total_pids++;
 
@@ -519,7 +552,9 @@ int main(int argc, char *argv[]) {
     if (master->view_path) {
         pids[total_pids++] = spawn_process(master->view_path,
                                            master->width, master->height,
-                                           -1);
+                                           -1,
+                                           master->pipes,
+                                           master->n_players);
     }
 
     master->last_player = master->n_players - 1;  // primera iteración arranca en jugador 0

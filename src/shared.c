@@ -25,10 +25,9 @@ void reader_leave(SyncData *sd) {
 void writer_enter(SyncData *sd) {
     sem_wait(&sd->no_writer);      // C: indicar que hay un escritor esperando o activo
     sem_wait(&sd->state_mutex);     // D: mutex del estado (esperar a que no haya lectores ni escritores)
-    sem_post(&sd->no_writer);
 }
 
 void writer_leave(SyncData *sd) {
    sem_post(&sd->state_mutex);     // D: liberar mutex del estado
-     // C: indicar que ya no hay escritor esperando o activo
+    sem_post(&sd->no_writer);   // C: indicar que ya no hay escritor esperando o activo
 }

@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -78,13 +80,16 @@ int main(int argc, char *argv[]) {
     // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
-    while (!gs->game_over) {
+    while (1) {
         sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
-
-        if (gs->game_over) break;
-
+ 
+        reader_enter(sd);
+        int over = gs->game_over;
+        reader_leave(sd);
+        if (over) break;
+ 
         if (!has_valid_move(gs, my_id, sd)) break;  // sin movimientos posibles → salir limpio
-
+ 
         unsigned char move = (unsigned char)(rand() % 8);
         write(STDOUT_FILENO, &move, 1);
     }
