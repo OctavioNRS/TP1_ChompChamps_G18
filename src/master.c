@@ -498,6 +498,12 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < master->n_players; i++) {
         int fds[2];
         if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
+        
+        // Set close-on-exec para evitar que los hijos filtren los write_ends de otros jugadores.
+        // dup2 en el run del hijo quitará este flag del stdout, pero los demás fds se cerraran solos en execv.
+        fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+        fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+        
         master->pipes[i] = fds[0];
         write_ends[i]    = fds[1];
     }
