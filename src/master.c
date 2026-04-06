@@ -1,4 +1,5 @@
-
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -198,6 +199,48 @@ static pid_t spawn_process(char *path, int width, int height,
     return pid;
 }
 
+static void print_winner(GameState *gs) {
+    int winner = 0;
+    for (int i = 1; i < (int)gs->n_players; i++) {
+        PlayerInfo *w = &gs->players[winner];
+        PlayerInfo *p = &gs->players[i];
+
+        if (p->score > w->score) {
+            winner = i;
+        } else if (p->score == w->score) {
+            if (p->valid_moves < w->valid_moves) {
+                winner = i;
+            } else if (p->valid_moves == w->valid_moves) {
+                if (p->invalid_moves < w->invalid_moves) {
+                    winner = i;
+                }
+            }
+        }
+    }
+
+    // verificar empate
+    int is_tie = 0;
+    for (int i = 0; i < (int)gs->n_players; i++) {
+        if (i == winner) continue;
+        PlayerInfo *w = &gs->players[winner];
+        PlayerInfo *p = &gs->players[i];
+        if (p->score == w->score &&
+            p->valid_moves == w->valid_moves &&
+            p->invalid_moves == w->invalid_moves) {
+            is_tie = 1;
+        }
+    }
+
+    if (is_tie)
+        printf("\n=== EMPATE ===\n");
+    else
+        printf("\n=== GANADOR: %s (score=%u  valid=%u  invalid=%u) ===\n",
+               gs->players[winner].name,
+               gs->players[winner].score,
+               gs->players[winner].valid_moves,
+               gs->players[winner].invalid_moves);
+}
+
 //finalizacion: esperar hijos, imprimir resultados, cerrar pipes, destruir semáforos, eliminar SHMs
 static void cleanup(GameState *gs, SyncData *sd, masterADT master,
                     pid_t pids[], int total_pids) {
@@ -218,9 +261,12 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     printf("\n=== resultado final ===\n");
     for (int i = 0; i < (int)gs->n_players; i++) {
         PlayerInfo *p = &gs->players[i];
-        printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
-               i, p->name, p->score, p->valid_moves, p->invalid_moves);
+        printf("  [%d] %s  score=%u  invalid=%u  valid=%u\n",
+               i, p->name, p->score, p->invalid_moves, p->valid_moves);
     }
+
+    // imprimir ganador
+    print_winner(gs);
 
     // cerrar pipes (pueden estar en -1 si el jugador fue bloqueado durante el juego)
     for (int i = 0; i < master->n_players; i++) {

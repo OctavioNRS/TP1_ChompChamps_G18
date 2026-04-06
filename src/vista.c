@@ -1,4 +1,5 @@
-
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -54,7 +55,7 @@ static void draw_board(GameState *gs) {
 
             if (player_here >= 0) {
                 // mostrar P1, P2, P3... con color del jugador
-                printf("%s" BOLD "P%d" RESET " ", player_colors[player_here], player_here + 1);
+                printf("%s" BOLD "P%d" RESET " ", player_colors[player_here], player_here);
             } else if (cell > 0) {
                 // celda libre: mostrar recompensa
                 printf(" %d ", cell);
@@ -97,7 +98,7 @@ static void draw_players(GameState *gs) {
         int idx = order[i];
         PlayerInfo *p = &gs->players[idx];
         printf("%s" BOLD "P%d %s: (%u)" RESET "%s\n",
-               player_colors[idx], idx + 1, p->name, p->score,
+               player_colors[idx], idx, p->name, p->score,
                p->blocked ? " (bloqueado)" : "");
     }
 }
