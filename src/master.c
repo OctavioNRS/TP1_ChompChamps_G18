@@ -279,37 +279,42 @@ static void pipe_set_blocked(masterADT m, int i) {
     m->pipes[i] = -1;
 }
 
+// Deltas para las 8 direcciones: 0=arriba, sentido horario
+// dir:  0   1   2   3   4   5   6   7
+static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
+static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
+
 // Lee el movimiento del jugador i, lo valida y lo aplica.
 // Devuelve 0 si el movimiento fue válido, -1 si no.
 static int check_player(masterADT m, int i) {
-    char move;
+    unsigned char move;
     if (read(m->pipes[i], &move, 1) <= 0) {
         pipe_set_blocked(m, i);
         return -1;
     }
 
-    reader_enter(m->game_sync);
-    int x = m->game_state->players[i].x;
-    int y = m->game_state->players[i].y;
-    reader_leave(m->game_sync);
-
-    int nx = x, ny = y;
-    if      (move == 'U' || move == 'u') ny--;
-    else if (move == 'D' || move == 'd') ny++;
-    else if (move == 'L' || move == 'l') nx--;
-    else if (move == 'R' || move == 'r') nx++;
-    else {
+    if (move > 7) {
         writer_enter(m->game_sync);
         m->game_state->players[i].invalid_moves++;
         writer_leave(m->game_sync);
+        sem_post(&m->game_sync->player_ack[i]);
         return -1;
     }
+
+    reader_enter(m->game_sync);
+    int x = (int)m->game_state->players[i].x;
+    int y = (int)m->game_state->players[i].y;
+    reader_leave(m->game_sync);
+
+    int nx = x + dx[move];
+    int ny = y + dy[move];
 
     // Validar límites
     if (nx < 0 || nx >= m->width || ny < 0 || ny >= m->height) {
         writer_enter(m->game_sync);
         m->game_state->players[i].invalid_moves++;
         writer_leave(m->game_sync);
+        sem_post(&m->game_sync->player_ack[i]);
         return -1;
     }
 
@@ -320,6 +325,7 @@ static int check_player(masterADT m, int i) {
         // celda ocupada, movimiento inválido
         m->game_state->players[i].invalid_moves++;
         writer_leave(m->game_sync);
+        sem_post(&m->game_sync->player_ack[i]);
         return -1;
     }
     // Aplicar movimiento
@@ -329,6 +335,7 @@ static int check_player(masterADT m, int i) {
     m->game_state->players[i].y = (unsigned short)ny;
     m->game_state->players[i].valid_moves++;
     writer_leave(m->game_sync);
+    sem_post(&m->game_sync->player_ack[i]);
     return 0;
 }
 
@@ -343,6 +350,7 @@ static int game_start(masterADT m) {
         // Actualizar timeout
         int elapsed = (int)(time(NULL) - last_time);
         tv.tv_sec = m->timeout_s - elapsed;
+        if (tv.tv_sec < 0) tv.tv_sec = 0;
 
         // Seleccionar siguiente jugador, pipes_set queda solo con los fd que no estan bloqueados
         int ready = select(m->pipes_max_fd + 1, &m->pipes_set, NULL, NULL, &tv);
@@ -378,6 +386,15 @@ static int game_start(masterADT m) {
                 if (!check_player(m, i)) {       // si es valido
                     last_time = time(NULL);       // resetear timeout
                     m->last_player = (int)i;      // recordar quién movió
+                    if (m->view_path) {
+                        sem_post(&m->game_sync->view_ready);
+                        sem_wait(&m->game_sync->view_done);
+                    }
+                    struct timespec ts = {
+                        m->delay_ms / 1000,
+                        (long)(m->delay_ms % 1000) * 1000000L
+                    };
+                    nanosleep(&ts, NULL);
                 }
             } else {
                 // No respondió a tiempo, marcar como bloqueado
