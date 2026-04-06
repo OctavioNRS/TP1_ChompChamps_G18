@@ -6,7 +6,29 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
+#include <time.h>
 #include "shared.h"
+
+static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
+static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
+
+static int has_valid_move(GameState *gs, int my_id, SyncData *sd) {
+    reader_enter(sd);
+    int x = (int)gs->players[my_id].x;
+    int y = (int)gs->players[my_id].y;
+    int w = (int)gs->width;
+    int h = (int)gs->height;
+
+    int found = 0;
+    for (int dir = 0; dir < 8 && !found; dir++) {
+        int nx = x + dx[dir];
+        int ny = y + dy[dir];
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        if (gs->board[ny * w + nx] > 0) found = 1;
+    }
+    reader_leave(sd);
+    return found;
+}
 
 int main(int argc, char *argv[]) {
 
@@ -19,14 +41,12 @@ int main(int argc, char *argv[]) {
     int height = atoi(argv[2]);
     size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
 
-    // abrir /game_state (solo lectura)
     int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
     if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }
     GameState *gs = mmap(NULL, total, PROT_READ, MAP_SHARED, fd1, 0);
     if (gs == MAP_FAILED) { perror("jugador: mmap game_state"); return 1; }
     close(fd1);
 
-    // abrir /game_sync (lectura/escritura para semáforos)
     int fd2 = shm_open(SHM_SYNC, O_RDWR, 0666);
     if (fd2 == -1) { perror("jugador: shm_open game_sync"); return 1; }
     SyncData *sd = mmap(NULL, sizeof(SyncData),
@@ -34,7 +54,6 @@ int main(int argc, char *argv[]) {
     if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
     close(fd2);
 
-    // buscar mi id con reintentos por si el master no seteó el PID todavía
     int my_id = -1;
     pid_t my_pid = getpid();
     while (my_id == -1) {
@@ -42,26 +61,32 @@ int main(int argc, char *argv[]) {
             if (gs->players[i].pid == my_pid)
                 my_id = i;
         }
+        if (my_id == -1) {
+            struct timespec ts = {0, 1000000L};
+            nanosleep(&ts, NULL);
+        }
     }
 
     fprintf(stderr, "jugador: conectado — tablero %dx%d  id=%d\n",
         gs->width, gs->height, my_id);
 
-    srand((unsigned int)getpid());  // seed única por proceso
+    srand((unsigned int)getpid());
 
-    // primer movimiento sin esperar semáforo
-    unsigned char move = (unsigned char)(rand() % 8);
-    write(STDOUT_FILENO, &move, 1);
-
-    // loop: esperar confirmación → enviar siguiente movimiento
     while (!gs->game_over) {
-    sem_wait(&sd->player_ack[my_id]);
+        sem_wait(&sd->player_ack[my_id]);
 
-    if (!gs->game_over) {
-        move = (unsigned char)(rand() % 8);
+        if (gs->game_over) continue;
+
+        if (!has_valid_move(gs, my_id, sd)) {
+            close(STDOUT_FILENO);
+            munmap(gs, total);
+            munmap(sd, sizeof(SyncData));
+            return 0;
+        }
+
+        unsigned char move = (unsigned char)(rand() % 8);
         write(STDOUT_FILENO, &move, 1);
     }
-}
 
     munmap(gs, total);
     munmap(sd, sizeof(SyncData));

@@ -277,6 +277,7 @@ static void pipe_set_blocked(masterADT m, int i) {
     writer_leave(m->game_sync);
     close(m->pipes[i]);
     m->pipes[i] = -1;
+    sem_post(&m->game_sync->player_ack[i]);  // despertar al jugador para que pueda salir
 }
 
 // Deltas para las 8 direcciones: 0=arriba, sentido horario
@@ -344,21 +345,41 @@ static int game_start(masterADT m) {
     time_t last_time = time(NULL);
 
     while (1) {
-        // Reconstruir fd_set con los pipes aún activos
         build_pipes_set(m);
 
-        // Actualizar timeout
+        if (no_player_can_move(m) || m->pipes_max_fd == 0) {
+            writer_enter(m->game_sync);
+            m->game_state->game_over = true;
+            writer_leave(m->game_sync);
+
+            for (int j = 0; j < m->n_players; j++)
+                sem_post(&m->game_sync->player_ack[j]);
+
+            if (m->view_path) {
+                sem_post(&m->game_sync->view_ready);
+                sem_wait(&m->game_sync->view_done);
+            }
+            return 0;
+        }
+
         int elapsed = (int)(time(NULL) - last_time);
         tv.tv_sec = m->timeout_s - elapsed;
         if (tv.tv_sec < 0) tv.tv_sec = 0;
 
-        // Seleccionar siguiente jugador, pipes_set queda solo con los fd que no estan bloqueados
         int ready = select(m->pipes_max_fd + 1, &m->pipes_set, NULL, NULL, &tv);
 
-        if (no_player_can_move(m) || ready == 0 || elapsed >= m->timeout_s) {
+        if (ready == 0 || elapsed >= m->timeout_s) {
             writer_enter(m->game_sync);
             m->game_state->game_over = true;
             writer_leave(m->game_sync);
+
+            for (int j = 0; j < m->n_players; j++)
+                sem_post(&m->game_sync->player_ack[j]);
+
+            if (m->view_path) {
+                sem_post(&m->game_sync->view_ready);
+                sem_wait(&m->game_sync->view_done);
+            }
             return 0;
         }
 
@@ -366,12 +387,10 @@ static int game_start(masterADT m) {
             writer_enter(m->game_sync);
             m->game_state->game_over = true;
             writer_leave(m->game_sync);
-            perror("MASTER::GAME_START: Error with select");
+            perror("master: select");
             return -1;
         }
 
-        // Si llegue aca entonces ready > 0
-        // Arrancamos desde last_player + 1 para no favorecer siempre al jugador 0
         for (unsigned int k = 0; k < (unsigned int)m->n_players; k++) {
             unsigned int i = ((unsigned int)m->last_player + 1 + k) % (unsigned int)m->n_players;
 
@@ -379,13 +398,13 @@ static int game_start(masterADT m) {
             bool is_blocked = m->game_state->players[i].blocked;
             reader_leave(m->game_sync);
 
-            if (m->pipes[i] == -1 || is_blocked)    // Ignorar
+            if (m->pipes[i] == -1 || is_blocked)
                 continue;
 
             if (FD_ISSET(m->pipes[i], &m->pipes_set)) {
-                if (!check_player(m, i)) {       // si es valido
-                    last_time = time(NULL);       // resetear timeout
-                    m->last_player = (int)i;      // recordar quién movió
+                if (!check_player(m, i)) {
+                    last_time = time(NULL);
+                    m->last_player = (int)i;
                     if (m->view_path) {
                         sem_post(&m->game_sync->view_ready);
                         sem_wait(&m->game_sync->view_done);
@@ -395,10 +414,12 @@ static int game_start(masterADT m) {
                         (long)(m->delay_ms % 1000) * 1000000L
                     };
                     nanosleep(&ts, NULL);
+                } else {
+                    if (m->pipes[i] == -1 && m->view_path) {
+                        sem_post(&m->game_sync->view_ready);
+                        sem_wait(&m->game_sync->view_done);
+                    }
                 }
-            } else {
-                // No respondió a tiempo, marcar como bloqueado
-                pipe_set_blocked(m, i);
             }
         }
     }
