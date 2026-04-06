@@ -1,5 +1,3 @@
-// This is an open source non-commercial project. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -8,7 +6,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include <time.h>
 #include "shared.h"
 
 static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
@@ -56,35 +53,37 @@ int main(int argc, char *argv[]) {
     if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
     close(fd2);
 
-    int my_id = -1;
+    // Sin busy-wait: el master escribe gs->players[i].pid = pid del hijo
+    // ANTES de que el hijo arranque (fork retorna primero en el padre),
+    // por lo que cuando llegamos acá el PID ya está en la shm.
     pid_t my_pid = getpid();
-    while (my_id == -1) {
-        for (int i = 0; i < (int)gs->n_players; i++) {
-            if (gs->players[i].pid == my_pid)
-                my_id = i;
+    int my_id = -1;
+    for (int i = 0; i < (int)gs->n_players; i++) {
+        if (gs->players[i].pid == my_pid) {
+            my_id = i;
+            break;
         }
-        if (my_id == -1) {
-            struct timespec ts = {0, 1000000L};
-            nanosleep(&ts, NULL);
-        }
+    }
+    if (my_id == -1) {
+        fprintf(stderr, "jugador: no encontré mi PID en game_state\n");
+        return 1;
     }
 
     fprintf(stderr, "jugador: conectado — tablero %dx%d  id=%d\n",
         gs->width, gs->height, my_id);
 
-    srand((unsigned int)getpid());
+    srand((unsigned int)my_pid);
 
+    // Primer movimiento: player_ack[i] arranca en 1, así que
+    // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
+    // Esto mantiene el invariante: siempre esperamos el ACK del master
+    // antes de enviar, incluyendo el primer envío.
     while (!gs->game_over) {
-        sem_wait(&sd->player_ack[my_id]);
+        sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
 
-        if (gs->game_over) continue;
+        if (gs->game_over) break;
 
-        if (!has_valid_move(gs, my_id, sd)) {
-            close(STDOUT_FILENO);
-            munmap(gs, total);
-            munmap(sd, sizeof(SyncData));
-            return 0;
-        }
+        if (!has_valid_move(gs, my_id, sd)) break;  // sin movimientos posibles → salir limpio
 
         unsigned char move = (unsigned char)(rand() % 8);
         write(STDOUT_FILENO, &move, 1);
