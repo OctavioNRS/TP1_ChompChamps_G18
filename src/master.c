@@ -261,8 +261,8 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     printf("\n=== resultado final ===\n");
     for (int i = 0; i < (int)gs->n_players; i++) {
         PlayerInfo *p = &gs->players[i];
-        printf("  [%d] %s  score=%u  invalid=%u  valid=%u\n",
-               i, p->name, p->score, p->invalid_moves, p->valid_moves);
+        printf("  [%d] %s  score=%u  valid=%u  invalid=%u\n",
+               i, p->name, p->score, p->valid_moves, p->invalid_moves);
     }
 
     // imprimir ganador
