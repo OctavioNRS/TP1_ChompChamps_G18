@@ -170,6 +170,8 @@ static void place_players(GameState *gs, masterADT master) {
 //fork + exec de los jugadores, guardando su PID
 static pid_t spawn_process(char *path, int width, int height,
                            int write_fd,        // -1 si no hay redirección
+                           int *all_write_fds,
+                           int n_write_fds,        // cantidad de write_fds en el array (pueden ser < n_players)
                            int *read_fds,       // array de read-ends a cerrar en el hijo
                            int n_read_fds)
 {
@@ -194,6 +196,11 @@ static pid_t spawn_process(char *path, int width, int height,
         for (int k = 0; k < n_read_fds; k++) {
             if (read_fds[k] != -1)
                 close(read_fds[k]);
+        }
+
+        for (int i = 0; i < n_write_fds; i++) {
+            if (all_write_fds[i] != -1)
+                close(all_write_fds[i]);
         }
 
         char w_str[16], h_str[16];
@@ -529,12 +536,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < master->n_players; i++) {
         int fds[2];
         if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
-        
-        // Set close-on-exec para evitar que los hijos filtren los write_ends de otros jugadores.
-        // dup2 en el run del hijo quitará este flag del stdout, pero los demás fds se cerraran solos en execv.
-        fcntl(fds[0], F_SETFD, FD_CLOEXEC);
-        fcntl(fds[1], F_SETFD, FD_CLOEXEC);
-        
         master->pipes[i] = fds[0];
         write_ends[i]    = fds[1];
     }
@@ -546,6 +547,7 @@ int main(int argc, char *argv[]) {
         pids[total_pids] = spawn_process(master->player_paths[i],
                                          master->width, master->height,
                                          write_ends[i],
+                                         write_ends, master->n_players,
                                          master->pipes,
                                          master->n_players);
         gs->players[i].pid = pids[total_pids];
@@ -559,6 +561,7 @@ int main(int argc, char *argv[]) {
         pids[total_pids++] = spawn_process(master->view_path,
                                            master->width, master->height,
                                            -1,
+                                           write_ends, master->n_players,
                                            master->pipes,
                                            master->n_players);
     }

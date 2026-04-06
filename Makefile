@@ -17,7 +17,7 @@ greedy: src/GreedyPlayer.c src/shared.h
 	$(CC) $(CFLAGS) -o greedy src/GreedyPlayer.c src/shared.c $(LIBS)
 
 run: all
-	./master -v ./vista -p ./jugador
+	./master -v ./vista -p ./jugador ./greedy
 
 clean:
 	rm -f master vista jugador greedy
