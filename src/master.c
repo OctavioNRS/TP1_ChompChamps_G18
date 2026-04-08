@@ -272,23 +272,23 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
         int status;
         waitpid(pids[i], &status, 0);
 
-        int is_player = (i < master->n_players);
+        // int is_player = (i < master->n_players);
 
-        if (WIFEXITED(status)) {
-            if (is_player)
-                printf("pid %d (jugador %d): exit(%d) score=%u\n",
-                       (int)pids[i], i, WEXITSTATUS(status),
-                       gs->players[i].score);
-            else
-                printf("pid %d: exit(%d)\n", (int)pids[i], WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-            if (is_player)
-                printf("pid %d (jugador %d): signal %d score=%u\n",
-                       (int)pids[i], i, WTERMSIG(status),
-                       gs->players[i].score);
-            else
-                printf("pid %d: signal %d\n", (int)pids[i], WTERMSIG(status));
-        }
+        // if (WIFEXITED(status)) {
+        //     if (is_player)
+        //         printf("pid %d (jugador %d): exit(%d) score=%u\n",
+        //                (int)pids[i], i, WEXITSTATUS(status),
+        //                gs->players[i].score);
+        //     else
+        //         printf("pid %d: exit(%d)\n", (int)pids[i], WEXITSTATUS(status));
+        // } else if (WIFSIGNALED(status)) {
+        //     if (is_player)
+        //         printf("pid %d (jugador %d): signal %d score=%u\n",
+        //                (int)pids[i], i, WTERMSIG(status),
+        //                gs->players[i].score);
+        //     else
+        //         printf("pid %d: signal %d\n", (int)pids[i], WTERMSIG(status));
+        // }
     }
 
     // imprimir puntajes
