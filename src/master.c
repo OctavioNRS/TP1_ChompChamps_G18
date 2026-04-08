@@ -569,6 +569,14 @@ int main(int argc, char *argv[]) {
     master->last_player = master->n_players - 1;  // primera iteración arranca en jugador 0
     game_start(master);
 
+    // Cerrar pipes ANTES de cleanup para evitar que jugadores queden bloqueados escribiendo
+    for (int i = 0; i < master->n_players; i++) {
+        if (master->pipes[i] != -1) {
+            close(master->pipes[i]);
+            master->pipes[i] = -1;
+        }
+    }
+
     cleanup(gs, sd, master, pids, total_pids);
     return 0;
 }
