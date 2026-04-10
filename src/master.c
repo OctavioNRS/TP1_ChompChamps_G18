@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <signal.h>
 #include "shared.h"
 #include <sys/wait.h>
 
@@ -282,9 +283,10 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
         // Dar hasta 2 segundos de gracia para que terminen con SIGTERM.
         // Si no terminaron, forzar con SIGKILL para evitar que cleanup cuelgue.
         int exited = 0;
+        struct timespec wait_ts = { 0, 100000000L }; // 100ms
         for (int t = 0; t < 20; t++) {
             if (waitpid(pids[i], &status, WNOHANG) > 0) { exited = 1; break; }
-            usleep(100000);
+            nanosleep(&wait_ts, NULL);
         }
         if (!exited) {
             kill(pids[i], SIGKILL);
