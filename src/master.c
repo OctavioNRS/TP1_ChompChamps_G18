@@ -276,9 +276,7 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     for (int i = 0; i < total_pids; i++) {
         if (pids[i] <= 0) continue;
         int status;
-
-        if (waitpid(pids[i], &status, WNOHANG) <= 0)
-            continue;
+        waitpid(pids[i], &status, 0);  // Bloquear y esperar a que termine
     }
 
     // imprimir puntajes
