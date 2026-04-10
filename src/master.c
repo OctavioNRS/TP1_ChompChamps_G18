@@ -265,12 +265,31 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     // guardar tamaño antes de desmapear
     size_t gs_total = gs_size(gs->width, gs->height);
 
+    // Decisión de diseño: enviar SIGTERM a todos los hijos antes de waitpid.
+    // Necesario para binarios patológicos que ignoran game_over y no terminan solos.
+    // Sin esto, waitpid bloquea indefinidamente si el hijo está en un bucle infinito.
+    for (int i = 0; i < total_pids; i++) {
+        if (pids[i] > 0)
+            kill(pids[i], SIGTERM);
+    }
+
     // esperar hijos e imprimir resultado
     // los primeros n_players son jugadores; el último (si existe) es la vista
     for (int i = 0; i < total_pids; i++) {
         if (pids[i] <= 0) continue;
         int status;
-        waitpid(pids[i], &status, 0);
+
+        // Dar hasta 2 segundos de gracia para que terminen con SIGTERM.
+        // Si no terminaron, forzar con SIGKILL para evitar que cleanup cuelgue.
+        int exited = 0;
+        for (int t = 0; t < 20; t++) {
+            if (waitpid(pids[i], &status, WNOHANG) > 0) { exited = 1; break; }
+            usleep(100000);
+        }
+        if (!exited) {
+            kill(pids[i], SIGKILL);
+            waitpid(pids[i], &status, 0);
+        }
 
         // int is_player = (i < master->n_players);
 
@@ -467,6 +486,12 @@ static int game_start(masterADT m) {
             writer_enter(m->game_sync);
             m->game_state->game_over = true;
             writer_leave(m->game_sync);
+            for (int j = 0; j < m->n_players; j++)
+                sem_post(&m->game_sync->player_ack[j]);
+            if (m->view_path) {
+                sem_post(&m->game_sync->view_ready);
+                sem_wait(&m->game_sync->view_done);
+            }
             perror("master: select");
             return -1;
         }
@@ -494,6 +519,8 @@ static int game_start(masterADT m) {
                         (long)(m->delay_ms % 1000) * 1000000L
                     };
                     nanosleep(&ts, NULL);
+                    break;  // Decisión de diseño: un movimiento válido por iteración de select,
+                            // garantiza round-robin real entre jugadores.
                 } else {
                     if (m->view_path) {
                         sem_post(&m->game_sync->view_ready);
