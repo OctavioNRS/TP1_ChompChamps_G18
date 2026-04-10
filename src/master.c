@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/select.h>
-#include <signal.h>
 #include "shared.h"
 #include <sys/wait.h>
 
@@ -266,50 +265,20 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
     // guardar tamaño antes de desmapear
     size_t gs_total = gs_size(gs->width, gs->height);
 
-    // Decisión de diseño: enviar SIGTERM a todos los hijos antes de waitpid.
-    // Necesario para binarios patológicos que ignoran game_over y no terminan solos.
-    // Sin esto, waitpid bloquea indefinidamente si el hijo está en un bucle infinito.
-    for (int i = 0; i < total_pids; i++) {
-        if (pids[i] > 0)
-            kill(pids[i], SIGTERM);
+  
+    for (int i = 0; i < master->n_players; i++) {
+        if (master->pipes[i] != -1) {
+            close(master->pipes[i]);
+            master->pipes[i] = -1;
+        }
     }
-
-    // esperar hijos e imprimir resultado
-    // los primeros n_players son jugadores; el último (si existe) es la vista
+    
     for (int i = 0; i < total_pids; i++) {
         if (pids[i] <= 0) continue;
         int status;
 
-        // Dar hasta 2 segundos de gracia para que terminen con SIGTERM.
-        // Si no terminaron, forzar con SIGKILL para evitar que cleanup cuelgue.
-        int exited = 0;
-        struct timespec wait_ts = { 0, 100000000L }; // 100ms
-        for (int t = 0; t < 20; t++) {
-            if (waitpid(pids[i], &status, WNOHANG) > 0) { exited = 1; break; }
-            nanosleep(&wait_ts, NULL);
-        }
-        if (!exited) {
-            kill(pids[i], SIGKILL);
-            waitpid(pids[i], &status, 0);
-        }
-
-        // int is_player = (i < master->n_players);
-
-        // if (WIFEXITED(status)) {
-        //     if (is_player)
-        //         printf("pid %d (jugador %d): exit(%d) score=%u\n",
-        //                (int)pids[i], i, WEXITSTATUS(status),
-        //                gs->players[i].score);
-        //     else
-        //         printf("pid %d: exit(%d)\n", (int)pids[i], WEXITSTATUS(status));
-        // } else if (WIFSIGNALED(status)) {
-        //     if (is_player)
-        //         printf("pid %d (jugador %d): signal %d score=%u\n",
-        //                (int)pids[i], i, WTERMSIG(status),
-        //                gs->players[i].score);
-        //     else
-        //         printf("pid %d: signal %d\n", (int)pids[i], WTERMSIG(status));
-        // }
+        if (waitpid(pids[i], &status, WNOHANG) <= 0)
+            continue;
     }
 
     // imprimir puntajes
@@ -322,12 +291,6 @@ static void cleanup(GameState *gs, SyncData *sd, masterADT master,
 
     // imprimir ganador
     print_winner(gs);
-
-    // cerrar pipes (pueden estar en -1 si el jugador fue bloqueado durante el juego)
-    for (int i = 0; i < master->n_players; i++) {
-        if (master->pipes[i] != -1)
-            close(master->pipes[i]);
-    }
 
     // destruir semáforos
     sem_destroy(&sd->view_ready);
