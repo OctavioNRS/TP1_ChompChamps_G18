@@ -6,12 +6,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include "shared.h"
+#include "../include/shared.h"
 
 static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
 static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
 
-static double evaluate_move(GameState *gs, int my_id, int current_x, int current_y, int dir) {
+static double evaluate_move(GameState *gs, int current_x, int current_y, int dir) {
     int w = (int)gs->width;
     int h = (int)gs->height;
     int nx = current_x + dx[dir];
@@ -130,7 +130,7 @@ int main(int argc, char *argv[]) {
         int best_moves_count = 0;
 
         for (int dir = 0; dir < 8; dir++) {
-            double score = evaluate_move(gs, my_id, current_x, current_y, dir);
+            double score = evaluate_move(gs, current_x, current_y, dir);
             
             // Si el score es mayor a -9000, es un movimiento válido (celda > 0)
             if (score > -9000.0) {

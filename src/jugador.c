@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include "shared.h"
+#include "include/shared.h"
 
 static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
 static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };

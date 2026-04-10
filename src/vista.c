@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include "shared.h"
+#include "include/shared.h"
 
 // ═══════════════════════════════════════════
 // ANSI escape codes

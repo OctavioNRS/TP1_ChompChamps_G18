@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/select.h>
-#include "shared.h"
+#include "include/shared.h"
 #include <sys/wait.h>
 
 

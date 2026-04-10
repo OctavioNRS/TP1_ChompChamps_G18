@@ -3,10 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
 #include <string.h>
-#include "shared.h"
+#include <semaphore.h>
+#include "../include/shared.h"
 
 static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
 static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
@@ -110,26 +114,58 @@ static double evaluate_survival_move(GameState *gs, int current_x, int current_y
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Uso: %s <ID>\n", argv[0]);
+
+    if (argc < 3) {
+        fprintf(stderr, "jugador: uso: %s <width> <height>\n", argv[0]);
         return 1;
     }
-    int my_id = atoi(argv[1]);
+
+    int width  = atoi(argv[1]);
+    int height = atoi(argv[2]);
+    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
+
+    int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
+    if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }
+    GameState *gs = mmap(NULL, total, PROT_READ, MAP_SHARED, fd1, 0);
+    if (gs == MAP_FAILED) { perror("jugador: mmap game_state"); return 1; }
+    close(fd1);
+
+    int fd2 = shm_open(SHM_SYNC, O_RDWR, 0666);
+    if (fd2 == -1) { perror("jugador: shm_open game_sync"); return 1; }
+    SyncData *sd = mmap(NULL, sizeof(SyncData),
+                        PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
+    if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
+    close(fd2);
+
+    // Sin busy-wait: el master escribe gs->players[i].pid = pid del hijo
+    // ANTES de que el hijo arranque (fork retorna primero en el padre),
+    // por lo que cuando llegamos acá el PID ya está en la shm.
     pid_t my_pid = getpid();
+    int my_id = -1;
+    for (int i = 0; i < (int)gs->n_players; i++) {
+        if (gs->players[i].pid == my_pid) {
+            my_id = i;
+            break;
+        }
+    }
+    if (my_id == -1) {
+        fprintf(stderr, "jugador: no encontré mi PID en game_state\n");
+        return 1;
+    }
+
+    fprintf(stderr, "jugador: conectado — tablero %dx%d  id=%d\n",
+        gs->width, gs->height, my_id);
+
     srand((unsigned int)my_pid);
 
-    GameState *gs = get_game_state(SHM_STATE);
-    SyncData *sd = get_sync_data(SHM_SYNC);
-    if (!gs || !sd) return 1;
+    // Primer movimiento: player_ack[i] arranca en 1, así que
+    // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
+    // Esto mantiene el invariante: siempre esperamos el ACK del master
+    // antes de enviar, incluyendo el primer envío.
+    while (!gs->game_over) {
+        sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
 
-    // Ciclo de juego idéntico al greedy/random, sólo cambia la heurística elegida de evaluación
-    while (1) {
-        sem_wait(&sd->player_ack[my_id]);
-
-        reader_enter(sd);
-        int over = gs->game_over;
-        reader_leave(sd);
-        if (over) break;
+        if (gs->game_over) break;
 
         reader_enter(sd);
         int current_x = (int)gs->players[my_id].x;
@@ -141,7 +177,7 @@ int main(int argc, char *argv[]) {
 
         for (int dir = 0; dir < 8; dir++) {
             double score = evaluate_survival_move(gs, current_x, current_y, dir);
-            
+
             // Si el score es mayor a -9000, es seguro y la celda es libre (> 0).
             if (score > -9000.0) {
                 if (score > best_score) {
@@ -161,6 +197,7 @@ int main(int argc, char *argv[]) {
         write(STDOUT_FILENO, &move, 1);
     }
 
-    unmap_shared_memory(gs, sd);
+    munmap(gs, total);
+    munmap(sd, sizeof(SyncData));
     return 0;
 }
