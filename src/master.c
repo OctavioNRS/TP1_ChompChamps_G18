@@ -340,6 +340,10 @@ static void pipe_set_blocked(masterADT m, int i) {
     close(m->pipes[i]);
     m->pipes[i] = -1;
     sem_post(&m->game_sync->player_ack[i]);  // despertar al jugador para que pueda salir
+
+    // Recolectar el proceso hijo si ya terminó (evita zombies)
+    int status;
+    waitpid(m->game_state->players[i].pid, &status, WNOHANG);
 }
 
 // Deltas para las 8 direcciones: 0=arriba, sentido horario
