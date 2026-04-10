@@ -76,9 +76,11 @@ int parse_args(int argc, char *argv[], masterADT master) {
     }
     return 0;
 }
-static size_t gs_size(int w, int h) {
-    return sizeof(GameState) + ((size_t)w * (size_t)h) * sizeof(char);
-}
+
+// Movido a shared 
+// static size_t gs_size(int w, int h) {
+//     return sizeof(GameState) + ((size_t)w * (size_t)h) * sizeof(char);
+// }
 
 static GameState *create_game_state(int width, int height) {
     size_t total = gs_size(width, height);

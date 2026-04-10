@@ -76,20 +76,11 @@ int main(int argc, char *argv[]) {
 
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
-    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
 
-    int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
-    if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }
-    GameState *gs = mmap(NULL, total, PROT_READ, MAP_SHARED, fd1, 0);
-    if (gs == MAP_FAILED) { perror("jugador: mmap game_state"); return 1; }
-    close(fd1);
-
-    int fd2 = shm_open(SHM_SYNC, O_RDWR, 0666);
-    if (fd2 == -1) { perror("jugador: shm_open game_sync"); return 1; }
-    SyncData *sd = mmap(NULL, sizeof(SyncData),
-                        PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
-    if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
-    close(fd2);
+    GameState *gs;
+    SyncData *sd;
+    if (shm_open_game_state(width, height, &gs) == -1) return 1;
+    if (shm_open_sync_data(&sd) == -1) return 1;
 
     // Sin busy-wait: el master escribe gs->players[i].pid = pid del hijo
     // ANTES de que el hijo arranque (fork retorna primero en el padre),
@@ -152,7 +143,7 @@ int main(int argc, char *argv[]) {
         write(STDOUT_FILENO, &move, 1);
     }
 
-    munmap(gs, total);
-    munmap(sd, sizeof(SyncData));
+    shm_close_game_state(gs, width, height);
+    shm_close_sync_data(sd);
     return 0;
 }

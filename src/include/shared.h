@@ -49,5 +49,10 @@ void reader_enter(SyncData *sd);
 void reader_leave(SyncData *sd);
 void writer_enter(SyncData *sd);
 void writer_leave(SyncData *sd);
+int shm_open_game_state(int width, int height, GameState **gs_ptr);
+int shm_open_sync_data(SyncData **sd_ptr);
+int shm_close_game_state(GameState *gs, int width, int height);
+int shm_close_sync_data(SyncData *sd);
+
 
 #endif
