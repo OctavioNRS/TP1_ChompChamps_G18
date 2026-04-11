@@ -8,27 +8,27 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include "include/shared.h"
+#include "shared.h"
+#include <ncurses.h>
 
 // ═══════════════════════════════════════════
-// ANSI escape codes
+// Colores (ncurses)
 // ═══════════════════════════════════════════
 
-#define CLEAR_SCREEN    "\033[2J\033[H"
-#define RESET           "\033[0m"
-#define BOLD            "\033[1m"
+#define RESET           0
+#define BOLD            A_BOLD
 
 // colores por jugador (0-8)
-static const char *player_colors[] = {
-    "\033[36m",  // cyan
-    "\033[32m",  // verde
-    "\033[31m",  // rojo
-    "\033[35m",  // magenta
-    "\033[34m",  // azul
-    "\033[33m",  // amarillo
-    "\033[37m",  // blanco
-    "\033[92m",  // verde claro
-    "\033[96m",  // cyan claro
+static const short player_colors[] = {
+    COLOR_CYAN,
+    COLOR_GREEN,
+    COLOR_RED,
+    COLOR_MAGENTA,
+    COLOR_BLUE,
+    COLOR_YELLOW,
+    COLOR_WHITE,
+    COLOR_GREEN, // light green -> green
+    COLOR_CYAN,  // light cyan -> cyan
 };
 
 
@@ -36,12 +36,12 @@ static void draw_board(GameState *gs) {
     int w = gs->width;
     int h = gs->height;
 
-    printf("+");
-    for (int x = 0; x < w; x++) printf("---");
-    printf("+\n");
+    mvprintw(0, 0, "+");
+    for (int x = 0; x < w; x++) printw("---");
+    printw("+\n");
 
     for (int y = 0; y < h; y++) {
-        printf("|");
+        mvprintw(y + 1, 0, "|");
         for (int x = 0; x < w; x++) {
             char cell = gs->board[y * w + x];
 
@@ -55,25 +55,29 @@ static void draw_board(GameState *gs) {
 
             if (player_here >= 0) {
                 // mostrar P1, P2, P3... con color del jugador
-                printf("%s" BOLD "P%d" RESET " ", player_colors[player_here], player_here);
+                attron(COLOR_PAIR(player_here + 1) | BOLD);
+                mvprintw(y + 1, 1 + x * 3, "P%d ", player_here);
+                attroff(COLOR_PAIR(player_here + 1) | BOLD);
             } else if (cell > 0) {
                 // celda libre: mostrar recompensa
-                printf(" %d ", cell);
+                mvprintw(y + 1, 1 + x * 3, " %d ", cell);
             } else {
                 // celda capturada: mostrar valor negativo con color del dueño
                 int owner = -cell;
+                attron(COLOR_PAIR(owner + 1));
                 if (owner == 0)
-                    printf("%s %d " RESET, player_colors[owner], 0);
+                    mvprintw(y + 1, 1 + x * 3, " 0 ");
                 else
-                    printf("%s-%d " RESET, player_colors[owner], owner);
+                    mvprintw(y + 1, 1 + x * 3, "-%d ", owner);
+                attroff(COLOR_PAIR(owner + 1));
             }
         }
-        printf("|\n");
+        printw("|\n");
     }
 
-    printf("+");
-    for (int x = 0; x < w; x++) printf("---");
-    printf("+\n");
+    mvprintw(h + 1, 0, "+");
+    for (int x = 0; x < w; x++) printw("---");
+    printw("+\n");
 }
 
 static void draw_players(GameState *gs) {
@@ -93,19 +97,23 @@ static void draw_players(GameState *gs) {
         }
     }
 
-    printf("\n=== JUGADORES ===\n");
+    mvprintw(gs->height + 3, 0, "=== JUGADORES ===");
     for (int i = 0; i < gs->n_players; i++) {
         int idx = order[i];
         PlayerInfo *p = &gs->players[idx];
-        printf("%s" BOLD "P%d %s: (%u) (validos: %d) (invalidos: %d) " RESET "%s\n",
-               player_colors[idx], idx, p->name, p->score,
-               p->valid_moves, p->invalid_moves,
-               p->blocked ? " (bloqueado)" : "");
+
+        attron(COLOR_PAIR(idx + 1) | BOLD);
+        mvprintw(gs->height + 4 + i, 0, "P%d %s: (%u) (validos: %d) (invalidos: %d) ",
+                 idx, p->name, p->score, p->valid_moves, p->invalid_moves);
+        attroff(COLOR_PAIR(idx + 1) | BOLD);
+
+        if (p->blocked) {
+            printw(" (bloqueado)");
+        }
     }
 }
 
 int main(int argc, char *argv[]) {
-
     if (argc < 3) {
         fprintf(stderr, "vista: uso: %s <width> <height>\n", argv[0]);
         return 1;
@@ -114,27 +122,38 @@ int main(int argc, char *argv[]) {
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
 
+    // Abrir memory mappings
     GameState *gs;
     SyncData *sd;
     if (shm_open_game_state(width, height, &gs) == -1) return 1;
     if (shm_open_sync_data(&sd) == -1) return 1;
 
-    fprintf(stderr, "vista: conectada — tablero %dx%d\n",
-            gs->width, gs->height);
+    initscr();
+    start_color();
+    use_default_colors();
+
+    for (int i = 0; i < 9; i++) {
+        init_pair(i + 1, player_colors[i], -1);
+    }
+
+    curs_set(0); // hide cursor
+    noecho();
 
     // loop principal
     while (1) {
         sem_wait(&sd->view_ready);   // A: esperar que master indique cambios
 
-        printf(CLEAR_SCREEN);
+        erase();
         draw_board(gs);
         draw_players(gs);
-        fflush(stdout);
+        refresh();
 
         sem_post(&sd->view_done);    // B: notificar al master que terminamos
 
         if (gs->game_over) break;
     }
+
+    endwin();
 
     shm_close_game_state(gs, width, height);
     shm_close_sync_data(sd);
