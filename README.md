@@ -16,41 +16,8 @@ El proyecto fue refactorizado en módulos independientes para separar responsabi
 - **`vista.c`**: Visualización ASCII del estado del juego en tiempo real
 - **`players/`**: Implementaciones de estrategias (GreedyPlayer, SurvivorPlayer, jugador base)
 
-### 2. **Patrón Readers-Writers con Prevención de Inanición del Escritor**
 
-Implementa sincronización justa entre:
-- **Escritor (Master)**: Actualiza GameState (posiciones, tablero, scores)
-- **Lectores (Jugadores)**: Consultan estado para tomar decisiones
-
-```c
-// Implementación en shared.c
-void reader_enter(SyncData *sd);   // Bloquear lectura
-void reader_leave(SyncData *sd);   // Liberar lectura
-void writer_enter(SyncData *sd);   // Bloquear escritura
-void writer_leave(SyncData *sd);   // Liberar escritura
-```
-
-Semáforos utilizados:
-- `state_mutex`: Protege el estado del juego
-- `no_writer`: Previene inanición del escritor
-- `readers_mutex`: Protege contador de lectores
-
-### 3. **Comunicación por Memoria Compartida (Shared Memory)**
-
-Dos regiones compartidas:
-- **`SHM_STATE`**: Contiene `GameState` (tablero, posiciones x/y, scores, n_players)
-- **`SHM_SYNC`**: Contiene `SyncData` (semáforos de coordinación)
-
-Ventajas: **Cero copias**, comunicación directa entre procesos.
-
-### 4. **Comunicación de Movimientos por Pipes**
-
-- Master → Jugador: Envía byte (0-7) representando dirección
-- Jugador → Master: Responde con movimiento calculado
-
-Rationale: Separación clara de responsabilidades entre decisión (jugador) y validación (master).
-
-### 5. **Uso de #DEFINE para Constantes**
+### 2. **Uso de #DEFINE para Constantes**
 
 ```c
 #define NUM_DIRECTIONS 8        // 8 direcciones (N, NE, E, SE, S, SO, O, NO)
@@ -59,14 +26,11 @@ Rationale: Separación clara de responsabilidades entre decisión (jugador) y va
 #define SHM_PERMISSIONS 0666    // Permisos archivos compartidos
 #define MAX_PLAYERS 9           // Máximo 9 jugadores simultáneos
 ```
-
-Mejora: Evita magic numbers, facilita cambios globales.
-
 ---
 
 ## Instrucciones de Compilación y Ejecución
 
-### Compilación
+### Compilación Local
 
 ```bash
 # Limpieza y compilación completa
@@ -81,7 +45,22 @@ make
 # - survivor  (estrategia defensiva, maximiza libertad)
 ```
 
-### Ejecución Básica
+### Compilación en Docker
+```bash
+./run.sh [N_JUGADORES]
+
+# Ejemplos:
+./run.sh           # 1 jugador (default)
+./run.sh 2         # 2 jugadores
+./run.sh 3         # 3 jugadores
+```
+
+El script `run.sh` automáticamente:
+- Monta el directorio actual en `/SO/TPE_ChompChamps`
+- Compila el código
+- Ejecuta master con N jugadores aleatorios
+
+### Ejecución Directa (Local)
 
 ```bash
 # Forma más simple (vista + 2 jugadores)
@@ -89,12 +68,6 @@ make
 
 # Con parámetros completos
 ./master -w 15 -h 15 -d 100 -t 5 -s 42 -v ./vista -p ./jugador ./greedy ./survivor
-
-# Sin vista (solo resultados finales)
-./master -p ./jugador ./greedy ./survivor
-
-# Maximizar el juego
-./master -w 20 -h 20 -d 50 -t 15 -v ./vista -p ./jugador ./greedy ./survivor
 ```
 
 ### Parámetros de Línea de Comandos
@@ -108,6 +81,40 @@ make
 | `-s` | SEED | time(NULL) | Semilla RNG (para reproducibilidad) |
 | `-v` | VISTA_PATH | - | Ruta ejecutable de la vista |
 | `-p` | PLAYER_PATHS | - | Rutas de ejecutables de jugadores (min. 1) |
+
+---
+
+## Scripts de Testing y Debugging
+
+### 1. **`run.sh`** - Compilación y Ejecución en Docker
+```bash
+./run.sh [N_JUGADORES]
+```
+Automatiza compilación en docker + ejecución inmediata con N jugadores aleatorios.
+
+### 2. **`check-code.sh`** - Análisis Estático con PVS-Studio
+```bash
+./check-code.sh
+```
+Ejecuta análisis estático para detectar:
+- Posibles overflows (V1028)
+- Data races (V547)
+- Otros warnings de seguridad e implementación
+
+Genera reportes en:
+- `report.txt` (formato texto)
+- `report.html` (visualización en navegador)
+
+### 3. **`ver-pipes.sh`** - Monitoreo de Pipes y Procesos
+```bash
+./ver-pipes.sh
+```
+Durante ejecución monitorea:
+- File descriptors abiertos del master
+- Procesos hijo y sus conexiones
+- Limpieza de recursos al finalizar
+- Detecta pipes residuales o procesos zombies
+---
 
 ---
 
@@ -127,16 +134,6 @@ make
 ./vista             # Visualización ASCII estándar (RECOMENDADO)
 ./cursedVista       # Visualización ncurses (experimental, opcional)
 ```
-
-### Comando Recomendado para Tournament
-
-```bash
-# Torneo estándar
-./master -w 12 -h 12 -d 150 -t 8 -v ./vista -p ./jugador ./greedy ./survivor
-
-# Este comando funcionará con cualquier combinación de los players disponibles.
-```
-
 ---
 
 ## Limitaciones Conocidas
@@ -346,48 +343,10 @@ Permite identificar visualmente a cada jugador de 0-8 en la visualización del t
 ## Herramientas Utilizadas en Desarrollo
 
 - **Análisis estático**: PVS-Studio (Static Code Analysis) - Detección de overflows, data races
-- **Debugger**: GDB con flags `-g`) - Análisis de comportamiento de procesos
+- **Debugger**: GDB con flags (`-g`) - Análisis de comportamiento de procesos
 - **Control de versiones**: Git - Modularización incremental por PR
 - **Utilities**: strace, valgrind (memory leaks), ps/top (monitoreo procesos)
 
 ---
-
-## Notas de Implementación
-
-### Compilación Alternativa (ncurses)
-```bash
-make all_ncurses         # Compila cursedVista
-./master -v ./cursedVista -p ./jugador ./greedy  # Uso
-make clean_ncurses       # Limpieza selectiva
-```
-
-### Buffer de Pruebas
-Para reproducir comportamiento:
-```bash
-./master -s 12345 -w 10 -h 10 -d 100 -t 5 -p ./jugador ./greedy
-# -s 12345: Semilla fija → tablero idéntico cada ejecución
-```
-
-
-## Archivos Principales
-
-```
-src/
-├── include/
-│   ├── shared.h           # Definiciones y structs compartidas
-│   ├── game_logic.h       # API de lógica del juego
-│   └── process_manager.h  # API de gestión de procesos
-├── lib/
-│   ├── shared.c           # Sincronización readers-writers
-│   ├── game_logic.c       # Lógica de validación y movimientos
-│   └── process_manager.c  # Crear/limpiar procesos
-├── players/
-│   ├── GreedyPlayer.c     # Estrategia greedy
-│   └── SurvivorPlayer.c   # Estrategia defensiva
-├── master.c               # Orquestador principal
-├── vista.c                # Visualización ASCII
-├── cursedVista.c          # Visualización ncurses (experimental)
-└── jugador.c              # Jugador aleatorio
-```
 
 ---
