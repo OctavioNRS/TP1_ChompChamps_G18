@@ -18,7 +18,6 @@
 #define RESET           "\033[0m"
 #define BOLD            "\033[1m"
 
-// colores por jugador (0-8)
 static const char *player_colors[] = {
     "\033[36m",  // cyan
     "\033[32m",  // verde
@@ -45,7 +44,6 @@ static void draw_board(GameState *gs) {
         for (int x = 0; x < w; x++) {
             char cell = gs->board[y * w + x];
 
-            // ver si hay un jugador parado acá
             int player_here = -1;
             for (int p = 0; p < gs->n_players; p++) {
                 if (gs->players[p].x == (unsigned short)x &&
@@ -54,13 +52,10 @@ static void draw_board(GameState *gs) {
             }
 
             if (player_here >= 0) {
-                // mostrar P1, P2, P3... con color del jugador
                 printf("%s" BOLD "P%d" RESET " ", player_colors[player_here], player_here);
             } else if (cell > 0) {
-                // celda libre: mostrar recompensa
                 printf(" %d ", cell);
             } else {
-                // celda capturada: mostrar valor negativo con color del dueño
                 int owner = -cell;
                 if (owner == 0)
                     printf("%s %d " RESET, player_colors[owner], 0);
@@ -77,12 +72,10 @@ static void draw_board(GameState *gs) {
 }
 
 static void draw_players(GameState *gs) {
-    // crear array de indices ordenados por puntaje (mayor a menor)
     int order[MAX_PLAYERS];
     for (int i = 0; i < gs->n_players; i++)
         order[i] = i;
 
-    // ordenar por puntaje descendente (bubble sort simple)
     for (int i = 0; i < gs->n_players - 1; i++) {
         for (int j = 0; j < gs->n_players - 1 - i; j++) {
             if (gs->players[order[j]].score < gs->players[order[j+1]].score) {
@@ -122,16 +115,15 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "vista: conectada — tablero %dx%d\n",
             gs->width, gs->height);
 
-    // loop principal
     while (1) {
-        sem_wait(&sd->view_ready);   // A: esperar que master indique cambios
+        sem_wait(&sd->view_ready);
 
         printf(CLEAR_SCREEN);
         draw_board(gs);
         draw_players(gs);
         fflush(stdout);
 
-        sem_post(&sd->view_done);    // B: notificar al master que terminamos
+        sem_post(&sd->view_done);
 
         if (gs->game_over) break;
     }

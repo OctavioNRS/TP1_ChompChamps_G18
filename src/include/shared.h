@@ -10,7 +10,12 @@
 
 #define SHM_STATE "/game_state"
 #define SHM_SYNC  "/game_sync"
+#define SHM_PERMISSIONS 0666
 #define MAX_PLAYERS 9
+#define NUM_DIRECTIONS 8
+#define MAX_BOARD_VALUE 9
+#define MIN_BOARD_SIZE 10
+#define COORD_STR_SIZE 16
 
 // XXX — información de cada jugador
 typedef struct {
@@ -49,10 +54,12 @@ void reader_enter(SyncData *sd);
 void reader_leave(SyncData *sd);
 void writer_enter(SyncData *sd);
 void writer_leave(SyncData *sd);
+size_t gs_size(int width, int height);
 int shm_open_game_state(int width, int height, GameState **gs_ptr);
 int shm_open_sync_data(SyncData **sd_ptr);
 int shm_close_game_state(GameState *gs, int width, int height);
 int shm_close_sync_data(SyncData *sd);
+int find_player_id(GameState *gs, pid_t my_pid);
 
 
 #endif

@@ -50,13 +50,7 @@ int main(int argc, char *argv[]) {
     // ANTES de que el hijo arranque (fork retorna primero en el padre),
     // por lo que cuando llegamos acá el PID ya está en la shm.
     pid_t my_pid = getpid();
-    int my_id = -1;
-    for (int i = 0; i < (int)gs->n_players; i++) {
-        if (gs->players[i].pid == my_pid) {
-            my_id = i;
-            break;
-        }
-    }
+    int my_id = find_player_id(gs, my_pid);
     if (my_id == -1) {
         fprintf(stderr, "jugador: no encontré mi PID en game_state\n");
         return 1;
@@ -72,16 +66,16 @@ int main(int argc, char *argv[]) {
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
     while (1) {
-        sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
- 
+        sem_wait(&sd->player_ack[my_id]);
+
         reader_enter(sd);
         int over = gs->game_over;
         reader_leave(sd);
         if (over) break;
- 
-        if (!has_valid_move(gs, my_id, sd)) break;  // sin movimientos posibles → salir limpio
- 
-        unsigned char move = (unsigned char)(rand() % 8);
+
+        if (!has_valid_move(gs, my_id, sd)) break;
+
+        unsigned char move = (unsigned char)(rand() % NUM_DIRECTIONS);
         write(STDOUT_FILENO, &move, 1);
     }
 

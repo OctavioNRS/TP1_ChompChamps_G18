@@ -21,7 +21,7 @@ static double evaluate_move(GameState *gs, int current_x, int current_y, int dir
     if (nx < 0 || nx >= w || ny < 0 || ny >= h) return -10000.0;
     
     char cell_val = gs->board[ny * w + nx];
-    if (cell_val <= 0) return -10000.0; // Invalid move
+    if (cell_val <= 0) return -10000.0;
 
     double immediate_points = (double)cell_val;
     
@@ -86,13 +86,7 @@ int main(int argc, char *argv[]) {
     // ANTES de que el hijo arranque (fork retorna primero en el padre),
     // por lo que cuando llegamos acá el PID ya está en la shm.
     pid_t my_pid = getpid();
-    int my_id = -1;
-    for (int i = 0; i < (int)gs->n_players; i++) {
-        if (gs->players[i].pid == my_pid) {
-            my_id = i;
-            break;
-        }
-    }
+    int my_id = find_player_id(gs, my_pid);
     if (my_id == -1) {
         fprintf(stderr, "jugador: no encontré mi PID en game_state\n");
         return 1;
@@ -107,20 +101,23 @@ int main(int argc, char *argv[]) {
     // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
-    while (!gs->game_over) {
+    while (1) {
         sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
 
-        if (gs->game_over) break;
+        reader_enter(sd);
+        int over = gs->game_over;
+        reader_leave(sd);
+        if (over) break;
 
         reader_enter(sd);
         int current_x = (int)gs->players[my_id].x;
         int current_y = (int)gs->players[my_id].y;
 
         double best_score = -999999.0;
-        int best_moves[8];
+        int best_moves[NUM_DIRECTIONS];
         int best_moves_count = 0;
 
-        for (int dir = 0; dir < 8; dir++) {
+        for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
             double score = evaluate_move(gs, current_x, current_y, dir);
             
             // Si el score es mayor a -9000, es un movimiento válido (celda > 0)

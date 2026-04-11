@@ -20,13 +20,13 @@ static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
 static int bfs_open_spaces(GameState *gs, int start_x, int start_y, int max_distance) {
     int w = (int)gs->width;
     int h = (int)gs->height;
-    
-    char *visited = calloc((size_t)(w * h), sizeof(char));
+
+    char *visited = calloc((size_t)w * (size_t)h, sizeof(char));
     if (!visited) return 0;
-    
-    int *queue_x = malloc((size_t)(w * h) * sizeof(int));
-    int *queue_y = malloc((size_t)(w * h) * sizeof(int));
-    int *queue_d = malloc((size_t)(w * h) * sizeof(int));
+
+    int *queue_x = malloc((size_t)w * (size_t)h * sizeof(int));
+    int *queue_y = malloc((size_t)w * (size_t)h * sizeof(int));
+    int *queue_d = malloc((size_t)w * (size_t)h * sizeof(int));
     
     if (!queue_x || !queue_y || !queue_d) {
         free(visited);
@@ -50,7 +50,7 @@ static int bfs_open_spaces(GameState *gs, int start_x, int start_y, int max_dist
         int d = queue_d[head];
         head++;
 
-        spaces++; // Un casillero libre alcanzable más
+        spaces++;
 
         if (d >= max_distance) continue;
 
@@ -60,7 +60,6 @@ static int bfs_open_spaces(GameState *gs, int start_x, int start_y, int max_dist
 
             if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
                 int idx = ny * w + nx;
-                // Considerar transitable sólo celdas con > 0
                 if (gs->board[idx] > 0 && !visited[idx]) {
                     visited[idx] = 1;
                     queue_x[tail] = nx;
@@ -90,7 +89,7 @@ static double evaluate_survival_move(GameState *gs, int current_x, int current_y
     if (nx < 0 || nx >= w || ny < 0 || ny >= h) return -10000.0;
     
     char cell_val = gs->board[ny * w + nx];
-    if (cell_val <= 0) return -10000.0; // Movimiento inválido, ya pisado o pared
+    if (cell_val <= 0) return -10000.0;
 
     // 2. Calcular los "grados de libertad" a largo plazo (BFS looking ahead depth=6)
     // Esto equivale a contar cuántos casilleros limpios y contiguos hay.
@@ -122,32 +121,17 @@ int main(int argc, char *argv[]) {
 
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
-    size_t total = sizeof(GameState) + (size_t)(width * height) * sizeof(char);
 
-    int fd1 = shm_open(SHM_STATE, O_RDONLY, 0666);
-    if (fd1 == -1) { perror("jugador: shm_open game_state"); return 1; }
-    GameState *gs = mmap(NULL, total, PROT_READ, MAP_SHARED, fd1, 0);
-    if (gs == MAP_FAILED) { perror("jugador: mmap game_state"); return 1; }
-    close(fd1);
-
-    int fd2 = shm_open(SHM_SYNC, O_RDWR, 0666);
-    if (fd2 == -1) { perror("jugador: shm_open game_sync"); return 1; }
-    SyncData *sd = mmap(NULL, sizeof(SyncData),
-                        PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
-    if (sd == MAP_FAILED) { perror("jugador: mmap game_sync"); return 1; }
-    close(fd2);
+    GameState *gs;
+    SyncData *sd;
+    if (shm_open_game_state(width, height, &gs) == -1) return 1;
+    if (shm_open_sync_data(&sd) == -1) return 1;
 
     // Sin busy-wait: el master escribe gs->players[i].pid = pid del hijo
     // ANTES de que el hijo arranque (fork retorna primero en el padre),
     // por lo que cuando llegamos acá el PID ya está en la shm.
     pid_t my_pid = getpid();
-    int my_id = -1;
-    for (int i = 0; i < (int)gs->n_players; i++) {
-        if (gs->players[i].pid == my_pid) {
-            my_id = i;
-            break;
-        }
-    }
+    int my_id = find_player_id(gs, my_pid);
     if (my_id == -1) {
         fprintf(stderr, "jugador: no encontré mi PID en game_state\n");
         return 1;
@@ -162,23 +146,25 @@ int main(int argc, char *argv[]) {
     // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
-    while (!gs->game_over) {
-        sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
+    while (1) {
+        sem_wait(&sd->player_ack[my_id]);
 
-        if (gs->game_over) break;
+        reader_enter(sd);
+        int over = gs->game_over;
+        reader_leave(sd);
+        if (over) break;
 
         reader_enter(sd);
         int current_x = (int)gs->players[my_id].x;
         int current_y = (int)gs->players[my_id].y;
 
         double best_score = -999999.0;
-        int best_moves[8];
+        int best_moves[NUM_DIRECTIONS];
         int best_moves_count = 0;
 
-        for (int dir = 0; dir < 8; dir++) {
+        for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
             double score = evaluate_survival_move(gs, current_x, current_y, dir);
 
-            // Si el score es mayor a -9000, es seguro y la celda es libre (> 0).
             if (score > -9000.0) {
                 if (score > best_score) {
                     best_score = score;
@@ -191,13 +177,13 @@ int main(int argc, char *argv[]) {
         }
         reader_leave(sd);
 
-        if (best_moves_count == 0) break; // Sin escapatoria → acorralados, morir dignamente.
+        if (best_moves_count == 0) break;
 
         unsigned char move = (unsigned char)best_moves[rand() % best_moves_count];
         write(STDOUT_FILENO, &move, 1);
     }
 
-    munmap(gs, total);
+    munmap(gs, gs_size(width, height));
     munmap(sd, sizeof(SyncData));
     return 0;
 }

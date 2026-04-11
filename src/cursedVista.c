@@ -18,7 +18,6 @@
 #define RESET           0
 #define BOLD            A_BOLD
 
-// colores por jugador (0-8)
 static const short player_colors[] = {
     COLOR_CYAN,
     COLOR_GREEN,
@@ -27,8 +26,8 @@ static const short player_colors[] = {
     COLOR_BLUE,
     COLOR_YELLOW,
     COLOR_WHITE,
-    COLOR_GREEN, // light green -> green
-    COLOR_CYAN,  // light cyan -> cyan
+    COLOR_GREEN,
+    COLOR_CYAN,
 };
 
 
@@ -45,7 +44,6 @@ static void draw_board(GameState *gs) {
         for (int x = 0; x < w; x++) {
             char cell = gs->board[y * w + x];
 
-            // ver si hay un jugador parado acá
             int player_here = -1;
             for (int p = 0; p < gs->n_players; p++) {
                 if (gs->players[p].x == (unsigned short)x &&
@@ -54,15 +52,12 @@ static void draw_board(GameState *gs) {
             }
 
             if (player_here >= 0) {
-                // mostrar P1, P2, P3... con color del jugador
                 attron(COLOR_PAIR(player_here + 1) | BOLD);
                 mvprintw(y + 1, 1 + x * 3, "P%d ", player_here);
                 attroff(COLOR_PAIR(player_here + 1) | BOLD);
             } else if (cell > 0) {
-                // celda libre: mostrar recompensa
                 mvprintw(y + 1, 1 + x * 3, " %d ", cell);
             } else {
-                // celda capturada: mostrar valor negativo con color del dueño
                 int owner = -cell;
                 attron(COLOR_PAIR(owner + 1));
                 if (owner == 0)
@@ -81,12 +76,10 @@ static void draw_board(GameState *gs) {
 }
 
 static void draw_players(GameState *gs) {
-    // crear array de indices ordenados por puntaje (mayor a menor)
     int order[MAX_PLAYERS];
     for (int i = 0; i < gs->n_players; i++)
         order[i] = i;
 
-    // ordenar por puntaje descendente (bubble sort simple)
     for (int i = 0; i < gs->n_players - 1; i++) {
         for (int j = 0; j < gs->n_players - 1 - i; j++) {
             if (gs->players[order[j]].score < gs->players[order[j+1]].score) {
@@ -122,7 +115,6 @@ int main(int argc, char *argv[]) {
     int width  = atoi(argv[1]);
     int height = atoi(argv[2]);
 
-    // Abrir memory mappings
     GameState *gs;
     SyncData *sd;
     if (shm_open_game_state(width, height, &gs) == -1) return 1;
@@ -136,19 +128,18 @@ int main(int argc, char *argv[]) {
         init_pair(i + 1, player_colors[i], -1);
     }
 
-    curs_set(0); // hide cursor
+    curs_set(0);
     noecho();
 
-    // loop principal
     while (1) {
-        sem_wait(&sd->view_ready);   // A: esperar que master indique cambios
+        sem_wait(&sd->view_ready);
 
         erase();
         draw_board(gs);
         draw_players(gs);
         refresh();
 
-        sem_post(&sd->view_done);    // B: notificar al master que terminamos
+        sem_post(&sd->view_done);
 
         if (gs->game_over) break;
     }

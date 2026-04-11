@@ -1,13 +1,13 @@
 CC     = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g
+CFLAGS = -Wall -Wextra -std=c11 -g -Isrc
 LIBS   = -lrt -pthread
 
 all: master vista jugador greedy survivor
 
 all_ncurses: master cursedVista jugador greedy
 
-master: src/master.c src/shared.c src/include/shared.h
-	$(CC) $(CFLAGS) -o master src/master.c src/shared.c $(LIBS)
+master: src/master.c src/shared.c src/game_logic.c src/process_manager.c src/include/shared.h
+	$(CC) $(CFLAGS) -o master src/master.c src/shared.c src/game_logic.c src/process_manager.c $(LIBS)
 
 vista: src/vista.c src/include/shared.h
 	$(CC) $(CFLAGS) -o vista src/vista.c src/shared.c $(LIBS)
