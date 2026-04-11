@@ -28,6 +28,9 @@ pid_t spawn_process(char *path, int width, int height,
 // Actualiza el conjunto de file descriptors activos para select()
 void build_pipes_set(masterADT m);
 
+// Marca el pipe del jugador i como bloqueado y limpia su estado asociado
+void pipe_set_blocked(masterADT m, int i);
+
 // Limpia recursos: cierra pipes, espera hijos, destruye semáforos, elimina SHMs
 void cleanup(GameState *gs, SyncData *sd, masterADT master,
              pid_t pids[], int total_pids);

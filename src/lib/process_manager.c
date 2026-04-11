@@ -132,6 +132,20 @@ void build_pipes_set(masterADT m) {
     }
 }
 
+// Marca el pipe del jugador i como bloqueado y limpia su estado asociado
+void pipe_set_blocked(masterADT m, int i) {
+    writer_enter(m->game_sync);
+    m->game_state->players[i].blocked = true;
+    writer_leave(m->game_sync);
+
+    close(m->pipes[i]);
+    m->pipes[i] = -1;
+    sem_post(&m->game_sync->player_ack[i]);
+
+    int status;
+    waitpid(m->game_state->players[i].pid, &status, WNOHANG);
+}
+
 // Limpia recursos: cierra pipes, espera hijos, destruye semáforos, elimina SHMs
 void cleanup(GameState *gs, SyncData *sd, masterADT master,
              pid_t pids[], int total_pids) {

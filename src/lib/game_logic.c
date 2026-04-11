@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <sys/select.h>
 #include "include/shared.h"
+#include "include/process_manager.h"
 #include "include/game_logic.h"
 
 typedef struct masterCDT {
@@ -135,18 +136,6 @@ int no_player_can_move(masterADT m) {
     }
     reader_leave(m->game_sync);
     return all_blocked;
-}
-
-static void pipe_set_blocked(masterADT m, int i) {
-    writer_enter(m->game_sync);
-    m->game_state->players[i].blocked = true;
-    writer_leave(m->game_sync);
-    close(m->pipes[i]);
-    m->pipes[i] = -1;
-    sem_post(&m->game_sync->player_ack[i]);
-
-    int status;
-    waitpid(m->game_state->players[i].pid, &status, WNOHANG);
 }
 
 int check_player(masterADT m, int i) {
