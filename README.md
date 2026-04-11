@@ -10,9 +10,9 @@ Un simulador multijugador de juego de tablero implementado en C con sincronizaci
 El proyecto fue refactorizado en módulos independientes para separar responsabilidades:
 
 - **`master.c`**: Orquestación principal, parseo de argumentos, game loop principal
-- **`process_manager.c`**: Creación, gestión y limpieza de procesos hijo (fork/exec, cleanup)
-- **`game_logic.c`**: Lógica del juego (validación de movimientos, tablero, fin del juego)
-- **`shared.c`**: Sincronización readers-writers, funciones de utilidad compartida
+- **`lib/process_manager.c`**: Creación, gestión y limpieza de procesos hijo (fork/exec, cleanup)
+- **`lib/game_logic.c`**: Lógica del juego (validación de movimientos, tablero, fin del juego)
+- **`lib/shared.c`**: Sincronización readers-writers, funciones de utilidad compartida
 - **`vista.c`**: Visualización ASCII del estado del juego en tiempo real
 - **`players/`**: Implementaciones de estrategias (GreedyPlayer, SurvivorPlayer, jugador base)
 
@@ -377,16 +377,17 @@ src/
 │   ├── shared.h           # Definiciones y structs compartidas
 │   ├── game_logic.h       # API de lógica del juego
 │   └── process_manager.h  # API de gestión de procesos
+├── lib/
+│   ├── shared.c           # Sincronización readers-writers
+│   ├── game_logic.c       # Lógica de validación y movimientos
+│   └── process_manager.c  # Crear/limpiar procesos
+├── players/
+│   ├── GreedyPlayer.c     # Estrategia greedy
+│   └── SurvivorPlayer.c   # Estrategia defensiva
 ├── master.c               # Orquestador principal
-├── process_manager.c      # Crear/limpiar procesos
-├── game_logic.c           # Lógica de validación y movimientos
-├── shared.c               # Sincronización readers-writers
 ├── vista.c                # Visualización ASCII
-├── jugador.c              # Jugador aleatorio
 ├── cursedVista.c          # Visualización ncurses (experimental)
-└── players/
-    ├── GreedyPlayer.c     # Estrategia greedy
-    └── SurvivorPlayer.c   # Estrategia defensiva
+└── jugador.c              # Jugador aleatorio
 ```
 
 ---
