@@ -76,6 +76,47 @@ SyncData *create_sync(int n_players) {
     return sd;
 }
 
+// Inicializa estado compartido, sincronización y datos iniciales del juego
+void setup_game_data(masterADT master, GameState **gs_out, SyncData **sd_out) {
+    GameState *gs = create_game_state(master->width, master->height);
+    master->game_state = gs;
+
+    SyncData *sd = create_sync(master->n_players);
+    master->game_sync = sd;
+
+    init_board(gs, master);
+    place_players(gs, master);
+
+    *gs_out = gs;
+    *sd_out = sd;
+}
+
+// Inicializa el arreglo de pipes del master en estado cerrado
+void init_pipes_array(masterADT master) {
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        master->pipes[i] = -1;
+}
+
+// Crea un pipe por jugador. Devuelve 0 si OK, -1 en error
+int create_player_pipes(masterADT master, int write_ends[MAX_PLAYERS]) {
+    for (int i = 0; i < master->n_players; i++) {
+        int fds[2];
+        if (pipe(fds) == -1) {
+            perror("master: pipe");
+            for (int j = 0; j < i; j++) {
+                close(master->pipes[j]);
+                close(write_ends[j]);
+                master->pipes[j] = -1;
+            }
+            return -1;
+        }
+        master->pipes[i] = fds[0];
+        write_ends[i]    = fds[1];
+    }
+
+    return 0;
+}
+
 // Crea un proceso hijo (fork + exec) para un jugador
 pid_t spawn_process(char *path, int width, int height,
                     int write_fd,        // -1 si no hay redirección
@@ -118,6 +159,48 @@ pid_t spawn_process(char *path, int width, int height,
     }
 
     return pid;
+}
+
+// Lanza todos los procesos de jugadores y, si existe, la vista
+int spawn_game_processes(masterADT master,
+                         int write_ends[MAX_PLAYERS],
+                         pid_t pids[MAX_PLAYERS + 1]) {
+    int total_pids = 0;
+
+    for (int i = 0; i < master->n_players; i++) {
+        pids[total_pids] = spawn_process(master->player_paths[i],
+                                         master->width, master->height,
+                                         write_ends[i],
+                                         write_ends, master->n_players,
+                                         master->pipes,
+                                         master->n_players);
+        master->game_state->players[i].pid = pids[total_pids];
+        total_pids++;
+
+        // padre cierra el write_end: solo el hijo lo necesita
+        close(write_ends[i]);
+    }
+
+    if (master->view_path) {
+        pids[total_pids++] = spawn_process(master->view_path,
+                                           master->width, master->height,
+                                           -1,
+                                           write_ends, master->n_players,
+                                           master->pipes,
+                                           master->n_players);
+    }
+
+    return total_pids;
+}
+
+// Cierra todos los pipes de lectura de jugadores aún abiertos
+void close_open_player_pipes(masterADT master) {
+    for (int i = 0; i < master->n_players; i++) {
+        if (master->pipes[i] != -1) {
+            close(master->pipes[i]);
+            master->pipes[i] = -1;
+        }
+    }
 }
 
 // Actualiza el conjunto de file descriptors activos para select()

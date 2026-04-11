@@ -151,68 +151,29 @@ int main(int argc, char *argv[]) {
     if (parse_args(argc, argv, master) == -1)
         return 1;
 
-    GameState *gs = create_game_state(master->width, master->height);
-    master->game_state = gs;
-
-    SyncData *sd = create_sync(master->n_players);
-    master->game_sync = sd;
-
-    init_board(gs, master);
-
-    place_players(gs, master);
+    GameState *gs;
+    SyncData *sd;
+    setup_game_data(master, &gs, &sd);
 
     // inicializar pipes a -1 (indica pipe cerrado/no asignado)
-    for (int i = 0; i < MAX_PLAYERS; i++)
-        master->pipes[i] = -1;
+    init_pipes_array(master);
 
     // crear pipes: uno por jugador
     // pipes[i]     -> master lee movimientos
     // write_ends[i] -> se convierte en stdout del hijo
     int write_ends[MAX_PLAYERS];
 
-    for (int i = 0; i < master->n_players; i++) {
-        int fds[2];
-        if (pipe(fds) == -1) { perror("master: pipe"); return 1; }
-        master->pipes[i] = fds[0];
-        write_ends[i]    = fds[1];
-    }
+    if (create_player_pipes(master, write_ends) == -1)
+        return 1;
 
     pid_t pids[MAX_PLAYERS + 1];
-    int   total_pids = 0;
-
-    for (int i = 0; i < master->n_players; i++) {
-        pids[total_pids] = spawn_process(master->player_paths[i],
-                                         master->width, master->height,
-                                         write_ends[i],
-                                         write_ends, master->n_players,
-                                         master->pipes,
-                                         master->n_players);
-        gs->players[i].pid = pids[total_pids];
-        total_pids++;
-
-        // padre cierra el write_end: solo el hijo lo necesita
-        close(write_ends[i]);
-    }
-
-    if (master->view_path) {
-        pids[total_pids++] = spawn_process(master->view_path,
-                                           master->width, master->height,
-                                           -1,
-                                           write_ends, master->n_players,
-                                           master->pipes,
-                                           master->n_players);
-    }
+    int total_pids = spawn_game_processes(master, write_ends, pids);
 
     master->last_player = master->n_players - 1;  // primera iteración arranca en jugador 0
     game_start(master);
 
     // Cerrar pipes ANTES de cleanup para evitar que jugadores queden bloqueados escribiendo
-    for (int i = 0; i < master->n_players; i++) {
-        if (master->pipes[i] != -1) {
-            close(master->pipes[i]);
-            master->pipes[i] = -1;
-        }
-    }
+    close_open_player_pipes(master);
 
     cleanup(gs, sd, master, pids, total_pids);
     return 0;
