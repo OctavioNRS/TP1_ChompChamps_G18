@@ -10,25 +10,60 @@
 #include <semaphore.h>
 #include "include/shared.h"
 
+// Parámetros de estrategia BalancedPlayer (modificar para ajustar la estrategia)
+#define FREEDOM_WEIGHT        5.0    // Peso para grados de libertad (prioridad de seguridad)
+#define POINTS_WEIGHT         0.1    // Peso para puntos inmediatos (oportunista)
+#define FUTURE_WEIGHT         0.05   // Peso para promedio de puntos futuros
+#define FREEDOM_PENALTY       -1000.0 // Penalidad por poca libertad (atrapado)
+#define MIN_FREEDOM_THRESHOLD 2       // Grados de libertad mínimos aceptables
+#define INVALID_MOVE_SCORE    -10000.0 // Puntuación para movimientos inválidos     
+
 static const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
 static const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
 
-static int has_valid_move(GameState *gs, int my_id, SyncData *sd) {
-    reader_enter(sd);
-    int x = (int)gs->players[my_id].x;
-    int y = (int)gs->players[my_id].y;
+// Estrategia BalancedPlayer: evalúa un movimiento basándose en grados de libertad local y puntos
+// Retorna una puntuación: mayor es mejor. Movimientos inválidos retornan INVALID_MOVE_SCORE.
+static double evaluate_move_balanced(GameState *gs, int current_x, int current_y, int dir) {
     int w = (int)gs->width;
     int h = (int)gs->height;
 
-    int found = 0;
-    for (int dir = 0; dir < 8 && !found; dir++) {
-        int nx = x + dx[dir];
-        int ny = y + dy[dir];
-        bool within_bounds = (nx >= 0 && nx < w && ny >= 0 && ny < h);
-        if (within_bounds && gs->board[ny * w + nx] > 0) found = 1;
+    int nx = current_x + dx[dir];
+    int ny = current_y + dy[dir];
+
+    if (nx < 0 || nx >= w || ny < 0 || ny >= h)
+        return INVALID_MOVE_SCORE;
+
+    char cell_val = gs->board[ny * w + nx];
+    if (cell_val <= 0)
+        return INVALID_MOVE_SCORE;
+
+    int degrees_of_freedom = 0;
+    double future_points_sum = 0.0;
+    for (int d = 0; d < 8; d++) {
+        int nnx = nx + dx[d];
+        int nny = ny + dy[d];
+        if (nnx >= 0 && nnx < w && nny >= 0 && nny < h) {
+            char val = gs->board[nny * w + nnx];
+            if (val > 0) {
+                degrees_of_freedom++;
+                future_points_sum += (double)val;
+            }
+        }
     }
-    reader_leave(sd);
-    return found;
+
+    if (degrees_of_freedom < MIN_FREEDOM_THRESHOLD) {
+        return FREEDOM_PENALTY + ((double)cell_val * POINTS_WEIGHT);
+    }
+
+    double future_avg = (degrees_of_freedom > 0)
+        ? (future_points_sum / (double)degrees_of_freedom)
+        : 0.0;
+
+    double score = ((double)degrees_of_freedom * FREEDOM_WEIGHT)
+                 + ((double)cell_val * POINTS_WEIGHT)
+                 + (future_avg * FUTURE_WEIGHT);
+
+    return score;
 }
 
 int main(int argc, char *argv[]) {
@@ -74,11 +109,37 @@ int main(int argc, char *argv[]) {
         reader_leave(sd);
         bool game_ended = over;
 
-        bool no_valid_moves = !has_valid_move(gs, my_id, sd);
+        if (!game_ended) {
+            reader_enter(sd);
+            int current_x = (int)gs->players[my_id].x;
+            int current_y = (int)gs->players[my_id].y;
 
-        if (!game_ended && !no_valid_moves) {
-            unsigned char move = (unsigned char)(rand() % NUM_DIRECTIONS);
-            write(STDOUT_FILENO, &move, 1);
+            double best_score = -999999.0;
+            int best_moves[NUM_DIRECTIONS];
+            int best_moves_count = 0;
+
+            // Evaluar todas las 8 direcciones usando la estrategia BalancedPlayer
+            for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
+                double score = evaluate_move_balanced(gs, current_x, current_y, dir);
+
+                if (score > INVALID_MOVE_SCORE) {
+                    if (score > best_score) {
+                        best_score = score;
+                        best_moves[0] = dir;
+                        best_moves_count = 1;
+                    } else if (score == best_score) {
+                        best_moves[best_moves_count++] = dir;
+                    }
+                }
+            }
+            reader_leave(sd);
+
+            if (best_moves_count > 0) {
+                unsigned char move = (unsigned char)best_moves[rand() % best_moves_count];
+                write(STDOUT_FILENO, &move, 1);
+            } else {
+                continue_playing = false;
+            }
         } else {
             continue_playing = false;
         }
