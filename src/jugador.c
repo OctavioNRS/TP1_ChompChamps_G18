@@ -24,8 +24,8 @@ static int has_valid_move(GameState *gs, int my_id, SyncData *sd) {
     for (int dir = 0; dir < 8 && !found; dir++) {
         int nx = x + dx[dir];
         int ny = y + dy[dir];
-        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-        if (gs->board[ny * w + nx] > 0) found = 1;
+        bool within_bounds = (nx >= 0 && nx < w && ny >= 0 && ny < h);
+        if (within_bounds && gs->board[ny * w + nx] > 0) found = 1;
     }
     reader_leave(sd);
     return found;
@@ -65,18 +65,23 @@ int main(int argc, char *argv[]) {
     // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
-    while (1) {
+    bool continue_playing = true;
+    while (continue_playing) {
         sem_wait(&sd->player_ack[my_id]);
 
         reader_enter(sd);
         int over = gs->game_over;
         reader_leave(sd);
-        if (over) break;
+        bool game_ended = over;
 
-        if (!has_valid_move(gs, my_id, sd)) break;
+        bool no_valid_moves = !has_valid_move(gs, my_id, sd);
 
-        unsigned char move = (unsigned char)(rand() % NUM_DIRECTIONS);
-        write(STDOUT_FILENO, &move, 1);
+        if (!game_ended && !no_valid_moves) {
+            unsigned char move = (unsigned char)(rand() % NUM_DIRECTIONS);
+            write(STDOUT_FILENO, &move, 1);
+        } else {
+            continue_playing = false;
+        }
     }
 
     shm_close_game_state(gs, width, height);

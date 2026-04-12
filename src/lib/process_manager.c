@@ -208,10 +208,12 @@ void build_pipes_set(masterADT m) {
     FD_ZERO(&m->pipes_set);
     m->pipes_max_fd = 0;
     for (int i = 0; i < m->n_players; i++) {
-        if (m->pipes[i] == -1) continue;
-        FD_SET(m->pipes[i], &m->pipes_set);
-        if (m->pipes[i] > m->pipes_max_fd)
-            m->pipes_max_fd = m->pipes[i];
+        bool pipe_active = (m->pipes[i] != -1);
+        if (pipe_active) {
+            FD_SET(m->pipes[i], &m->pipes_set);
+            if (m->pipes[i] > m->pipes_max_fd)
+                m->pipes_max_fd = m->pipes[i];
+        }
     }
 }
 
@@ -245,9 +247,11 @@ void cleanup(GameState *gs, SyncData *sd, masterADT master,
     }
 
     for (int i = 0; i < total_pids; i++) {
-        if (pids[i] <= 0) continue;
-        int status;
-        waitpid(pids[i], &status, 0);  // Bloquear y esperar a que termine
+        bool valid_pid = (pids[i] > 0);
+        if (valid_pid) {
+            int status;
+            waitpid(pids[i], &status, 0);  // Bloquear y esperar a que termine
+        }
     }
 
     // imprimir resultados finales

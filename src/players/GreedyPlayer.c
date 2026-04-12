@@ -101,43 +101,51 @@ int main(int argc, char *argv[]) {
     // sem_wait lo decrementa a 0 (no bloquea) y recién ahí enviamos.
     // Esto mantiene el invariante: siempre esperamos el ACK del master
     // antes de enviar, incluyendo el primer envío.
-    while (1) {
+    bool continue_playing = true;
+    while (continue_playing) {
         sem_wait(&sd->player_ack[my_id]);   // bloquea hasta que master procese
 
         reader_enter(sd);
         int over = gs->game_over;
         reader_leave(sd);
-        if (over) break;
+        bool game_ended = over;
 
-        reader_enter(sd);
-        int current_x = (int)gs->players[my_id].x;
-        int current_y = (int)gs->players[my_id].y;
+        if (!game_ended) {
+            reader_enter(sd);
+            int current_x = (int)gs->players[my_id].x;
+            int current_y = (int)gs->players[my_id].y;
 
-        double best_score = -999999.0;
-        int best_moves[NUM_DIRECTIONS];
-        int best_moves_count = 0;
+            double best_score = -999999.0;
+            int best_moves[NUM_DIRECTIONS];
+            int best_moves_count = 0;
 
-        for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
-            double score = evaluate_move(gs, current_x, current_y, dir);
-            
-            // Si el score es mayor a -9000, es un movimiento válido (celda > 0)
-            if (score > -9000.0) {
-                if (score > best_score) {
-                    best_score = score;
-                    best_moves[0] = dir;
-                    best_moves_count = 1;
-                } else if (score == best_score) {
-                    best_moves[best_moves_count++] = dir;
+            for (int dir = 0; dir < NUM_DIRECTIONS; dir++) {
+                double score = evaluate_move(gs, current_x, current_y, dir);
+
+                // Si el score es mayor a -9000, es un movimiento válido (celda > 0)
+                if (score > -9000.0) {
+                    if (score > best_score) {
+                        best_score = score;
+                        best_moves[0] = dir;
+                        best_moves_count = 1;
+                    } else if (score == best_score) {
+                        best_moves[best_moves_count++] = dir;
+                    }
                 }
             }
+            reader_leave(sd);
+
+            bool no_best_move_available = (best_moves_count == 0);
+            if (no_best_move_available) {
+                continue_playing = false; // Sin movimientos posibles → morir / salir
+            } else {
+                // Empate: elegir al azar entre las mejores opciones
+                unsigned char move = (unsigned char)best_moves[rand() % best_moves_count];
+                write(STDOUT_FILENO, &move, 1);
+            }
+        } else {
+            continue_playing = false;
         }
-        reader_leave(sd);
-
-        if (best_moves_count == 0) break; // Sin movimientos posibles → morir / salir
-
-        // Empate: elegir al azar entre las mejores opciones
-        unsigned char move = (unsigned char)best_moves[rand() % best_moves_count];
-        write(STDOUT_FILENO, &move, 1);
     }
 
     shm_close_game_state(gs, width, height);

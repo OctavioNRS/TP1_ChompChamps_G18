@@ -115,7 +115,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "vista: conectada — tablero %dx%d\n",
             gs->width, gs->height);
 
-    while (1) {
+    bool should_render = true;
+    while (should_render) {
         sem_wait(&sd->view_ready);
 
         printf(CLEAR_SCREEN);
@@ -125,7 +126,7 @@ int main(int argc, char *argv[]) {
 
         sem_post(&sd->view_done);
 
-        if (gs->game_over) break;
+        should_render = !gs->game_over;
     }
 
     shm_close_game_state(gs, width, height);

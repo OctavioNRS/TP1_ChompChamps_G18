@@ -131,7 +131,8 @@ int main(int argc, char *argv[]) {
     curs_set(0);
     noecho();
 
-    while (1) {
+    bool should_render = true;
+    while (should_render) {
         sem_wait(&sd->view_ready);
 
         erase();
@@ -141,7 +142,7 @@ int main(int argc, char *argv[]) {
 
         sem_post(&sd->view_done);
 
-        if (gs->game_over) break;
+        should_render = !gs->game_over;
     }
 
     endwin();

@@ -106,35 +106,35 @@ static int game_start(masterADT m) {
             return -1;
         }
 
-        for (unsigned int k = 0; k < (unsigned int)m->n_players; k++) {
+        bool processed_one_move = false;
+        for (unsigned int k = 0; k < (unsigned int)m->n_players && !processed_one_move; k++) {
             unsigned int i = ((unsigned int)m->last_player + 1 + k) % (unsigned int)m->n_players;
 
             reader_enter(m->game_sync);
             bool is_blocked = m->game_state->players[i].blocked;
             reader_leave(m->game_sync);
 
-            if (m->pipes[i] == -1 || is_blocked)
-                continue;
-
-            if (FD_ISSET(m->pipes[i], &m->pipes_set)) {
-                if (!check_player(m, i)) {
-                    last_time = time(NULL);
-                    m->last_player = (int)i;
-                    if (m->view_path) {
-                        sem_post(&m->game_sync->view_ready);
-                        sem_wait(&m->game_sync->view_done);
-                    }
-                    struct timespec ts = {
-                        m->delay_ms / 1000,
-                        (long)(m->delay_ms % 1000) * 1000000L
-                    };
-                    nanosleep(&ts, NULL);
-                    break;  // Decisión de diseño: un movimiento válido por iteración de select,
-                            // garantiza round-robin real entre jugadores.
-                } else {
-                    if (m->view_path) {
-                        sem_post(&m->game_sync->view_ready);
-                        sem_wait(&m->game_sync->view_done);
+            bool pipe_available = (m->pipes[i] != -1 && !is_blocked);
+            if (pipe_available) {
+                if (FD_ISSET(m->pipes[i], &m->pipes_set)) {
+                    if (!check_player(m, i)) {
+                        last_time = time(NULL);
+                        m->last_player = (int)i;
+                        if (m->view_path) {
+                            sem_post(&m->game_sync->view_ready);
+                            sem_wait(&m->game_sync->view_done);
+                        }
+                        struct timespec ts = {
+                            m->delay_ms / 1000,
+                            (long)(m->delay_ms % 1000) * 1000000L
+                        };
+                        nanosleep(&ts, NULL);
+                        processed_one_move = true;  // Decisión de diseño: un movimiento válido por iteración
+                    } else {
+                        if (m->view_path) {
+                            sem_post(&m->game_sync->view_ready);
+                            sem_wait(&m->game_sync->view_done);
+                        }
                     }
                 }
             }

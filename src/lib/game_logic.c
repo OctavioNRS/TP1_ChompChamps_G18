@@ -95,13 +95,15 @@ void print_winner(GameState *gs) {
 
     int is_tie = 0;
     for (int i = 0; i < (int)gs->n_players; i++) {
-        if (i == winner) continue;
-        PlayerInfo *w = &gs->players[winner];
-        PlayerInfo *p = &gs->players[i];
-        if (p->score == w->score &&
-            p->valid_moves == w->valid_moves &&
-            p->invalid_moves == w->invalid_moves) {
-            is_tie = 1;
+        bool is_other_player = (i != winner);
+        if (is_other_player) {
+            PlayerInfo *w = &gs->players[winner];
+            PlayerInfo *p = &gs->players[i];
+            if (p->score == w->score &&
+                p->valid_moves == w->valid_moves &&
+                p->invalid_moves == w->invalid_moves) {
+                is_tie = 1;
+            }
         }
     }
 
@@ -128,10 +130,11 @@ void print_final_results(GameState *gs) {
 int no_player_can_move(masterADT m) {
     reader_enter(m->game_sync);
     int all_blocked = 1;
-    for (int i = 0; i < m->n_players; i++) {
+    bool found_active_player = false;
+    for (int i = 0; i < m->n_players && !found_active_player; i++) {
         if (!m->game_state->players[i].blocked) {
             all_blocked = 0;
-            break;
+            found_active_player = true;
         }
     }
     reader_leave(m->game_sync);
