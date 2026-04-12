@@ -7,14 +7,14 @@ Un simulador multijugador de juego de tablero implementado en C con sincronizaci
 ## Decisiones de Diseño
 
 ### 1. **Arquitectura Modular**
-El proyecto fue refactorizado en módulos independientes para separar responsabilidades:
+El proyecto está estructurado en módulos independientes que separan responsabilidades:
 
 - **`master.c`**: Orquestación principal, parseo de argumentos, game loop principal
+- **`jugador.c`**: Implementación del jugador BalancedPlayer (análisis local de seguridad + puntos)
+- **`vista.c`**: Visualización ASCII del estado del juego en tiempo real
 - **`lib/process_manager.c`**: Creación, gestión y limpieza de procesos hijo (fork/exec, cleanup)
 - **`lib/game_logic.c`**: Lógica del juego (validación de movimientos, tablero, fin del juego)
 - **`lib/shared.c`**: Sincronización readers-writers, funciones de utilidad compartida
-- **`vista.c`**: Visualización ASCII del estado del juego en tiempo real
-- **`players/`**: Implementaciones de estrategias (GreedyPlayer, SurvivorPlayer, jugador base)
 
 
 ### 2. **Uso de #DEFINE para Constantes**
@@ -37,12 +37,10 @@ El proyecto fue refactorizado en módulos independientes para separar responsabi
 make clean
 make
 
-# Esto genera 5 binarios:
+# Esto genera 3 binarios:
 # - master    (orquestador del juego)
-# - vista     (visualización estándar)
-# - jugador   (jugador simple, movimientos aleatorios)
-# - greedy    (estrategia greedy, maximiza puntos inmediatos)
-# - survivor  (estrategia defensiva, maximiza libertad)
+# - vista     (visualización ASCII)
+# - jugador   (jugador BalancedPlayer - análisis local de seguridad)
 ```
 
 ### Compilación en Docker
@@ -63,11 +61,11 @@ El script `run.sh` automáticamente:
 ### Ejecución Directa (Local)
 
 ```bash
-# Forma más simple (vista + 2 jugadores)
-./master -v ./vista -p ./jugador ./greedy
+# Forma más simple (vista + jugador)
+./master -v ./vista -p ./jugador
 
 # Con parámetros completos
-./master -w 15 -h 15 -d 100 -t 5 -s 42 -v ./vista -p ./jugador ./greedy ./survivor
+./master -w 15 -h 15 -d 100 -t 5 -s 42 -v ./vista -p ./jugador
 ```
 
 ### Parámetros de Línea de Comandos
@@ -118,21 +116,18 @@ Durante ejecución monitorea:
 
 ---
 
-## Rutas Relativas para Tournament
+## Rutas Relativas para Ejecución
 
-### Players Disponibles
+### Player Disponible
 
 ```bash
-./jugador           # Jugador básico - movimientos completamente aleatorios
-./greedy            # Greedy - maximiza recompensa inmediata + libertad
-./survivor          # Defensivo - maximiza espacios alcanzables (BFS)
+./jugador           # BalancedPlayer - análisis local de grados de libertad + puntos
 ```
 
-### Vistas Disponibles
+### Vista Disponible
 
 ```bash
-./vista             # Visualización ASCII estándar (RECOMENDADO)
-./cursedVista       # Visualización ncurses (experimental, opcional)
+./vista             # Visualización ASCII estándar (recomendado)
 ```
 ---
 
@@ -193,10 +188,7 @@ sem_post(&sd->no_writer);          // Liberar para próximos lectores
 ### 3. **Duplicación de Código (DRY Violation)**
 
 **Problema**:
-Loop `find_player_id()` repetido idénticamente en 3 archivos:
-- jugador.c (línea 54)
-- GreedyPlayer.c (línea 90)
-- SurvivorPlayer.c (línea 145)
+Loop `find_player_id()` podría repetirse en múltiples files de jugador.
 
 **Solución**:
 Extraer a función reutilizable en shared.c:
@@ -210,7 +202,7 @@ int find_player_id(GameState *gs, pid_t my_pid) {
 }
 ```
 
-**Impacto**: Una única fuente de verdad, reducción de 9 líneas duplicadas.
+**Impacto**: Una única fuente de verdad, reducción de código duplicado.
 
 ---
 
@@ -253,40 +245,15 @@ void end_game(masterADT m) {
 
 ---
 
-### 5. **Posible Overflow en Multiplicación (PVS-Studio V1028)**
+### 5. **Acceso No Protegido a `game_over` (PVS-Studio V547)**
 
 **Problema**:
-En `SurvivorPlayer.c:bfs_open_spaces()`, multiplicación en int antes del cast:
-```c
-char *visited = calloc((size_t)(w * h), sizeof(char));
-// ↓ Si w=20000, h=20000: 20000*20000 = INT_MAX overflow
-```
-
-**Solución**:
-Castear operandos ANTES de multiplicar:
-```c
-char *visited = calloc((size_t)w * (size_t)h, sizeof(char));
-// size_t * size_t → nunca overflow para tamaños razonables (≤2GB)
-```
-
-**Impacto**: Eliminación de advertencia estática, código más robusto para tableros grandes.
-
----
-
-### 6. **Acceso No Protegido a `game_over` (PVS-Studio V547)**
-
-**Problema**:
-Players accedían a `gs->game_over` sin protección de semáforo:
-```c
-while (!gs->game_over) {
-    sem_wait(&sd->player_ack[my_id]);
-    if (gs->game_over) break;  // ← Sin protección reader
-}
-```
+Players accedían a `gs->game_over` sin protección de semáforo.
 
 **Solución**:
 Proteger lectura con semáforos readers-writers:
 ```c
+// jugador.c
 while (1) {
     sem_wait(&sd->player_ack[my_id]);
     
@@ -299,10 +266,6 @@ while (1) {
 ```
 
 **Impacto**: Patrón explícito de sincronización, eliminación de data race potencial.
-
----
-
-### 7. **Debugging con Herramientas Asistidas**
 
 **Scripts de Debugging**:
 Dos scripts creados con asistencia de IA para facilitar debugging y análisis:
