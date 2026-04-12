@@ -55,9 +55,7 @@ static double evaluate_move_balanced(GameState *gs, int current_x, int current_y
         return FREEDOM_PENALTY + ((double)cell_val * POINTS_WEIGHT);
     }
 
-    double future_avg = (degrees_of_freedom > 0)
-        ? (future_points_sum / (double)degrees_of_freedom)
-        : 0.0;
+    double future_avg = future_points_sum / (double)degrees_of_freedom;
 
     double score = ((double)degrees_of_freedom * FREEDOM_WEIGHT)
                  + ((double)cell_val * POINTS_WEIGHT)
