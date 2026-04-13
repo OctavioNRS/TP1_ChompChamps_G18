@@ -28,6 +28,15 @@ El proyecto está estructurado en módulos independientes que separan responsabi
 ```
 ---
 
+### 3. **Round robin con last_player para tener juego justo**
+Se implemento en el loop principal del juego un Round robin que guarda cual es el ultimo jugador al cual el master le leyo un movimiento. Esta decision se tomo para que los jugadores que son forkeados inicialmente no tengan ventaja por sobre los otros. La revision del select se hace desde el ultimo jugador que se leyo + 1.
+
+### 4. **Jugador.c que priorice la supervivencia**
+Se tomo la decision de implementar un jugador que priorice moverse a donde tiene mas bloques libres al rededor en vez de priorizar la cantidad de puntos obtenidos en principio. Se hicieron comparaciones entre distintas estrategias de juego y se llego a dos estrategias principales para comparar que fueron GreedyPlayer y BalancedPlayer. La estructura de ambos fue similar pero en los pesos de uno valia mas la libertad y en otro los puntos inmediatos. La decision tomada fue optar por el BalancedPlayer como mejor estrategia.
+
+### 5. **Implementacion de no_writer para evitar inanicion del master**
+Se tomo la decision de implementar un semaforo que asegura que siempre que el master quiera escribir algo en la memoria compartida que tenga prioridad por sobre los lectores. El master cierra este semaforo de no_writer y espera a que todos los lectores dejen de leer para poder escribir. Todos los lectores pueden entrar a leer unicamente cuando este semaforo no esta encendido.
+
 ## Instrucciones de Compilación y Ejecución
 
 ### Compilación Local
