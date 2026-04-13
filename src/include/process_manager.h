@@ -6,9 +6,25 @@
 
 #include "shared.h"
 #include <sys/types.h>
+#include <sys/select.h>
 
-// Forward declaration
-typedef struct masterCDT masterCDT;
+typedef struct masterCDT {
+    int    width;
+    int    height;
+    int    delay_ms;
+    int    timeout_s;
+    long   seed;
+    char  *view_path;
+    char  *player_paths[MAX_PLAYERS];
+    int    n_players;
+    int    pipes[MAX_PLAYERS];
+    int    pipes_max_fd;
+    fd_set pipes_set;
+    GameState *game_state;
+    SyncData  *game_sync;
+    int        last_player;
+} masterCDT;
+
 typedef masterCDT * masterADT;
 
 // Crea la estructura de estado del juego en memoria compartida

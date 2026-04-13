@@ -20,24 +20,6 @@
 #define DEFAULT_DELAY   200
 #define DEFAULT_TIMEOUT 10
 
-typedef struct masterCDT {
-    int    width;
-    int    height;
-    int    delay_ms;
-    int    timeout_s;
-    long   seed;
-    char  *view_path;
-    char  *player_paths[MAX_PLAYERS];
-    int    n_players;
-    int    pipes[MAX_PLAYERS];
-    int    pipes_max_fd;
-    fd_set pipes_set;
-    GameState *game_state;
-    SyncData  *game_sync;
-    int        last_player;
-} masterCDT;
-
-typedef masterCDT * masterADT;
 
 // Devuelve 0 si OK, -1 si faltan jugadores o hay error
 int parse_args(int argc, char *argv[], masterADT master) {
@@ -114,8 +96,7 @@ static int game_start(masterADT m) {
             bool is_blocked = m->game_state->players[i].blocked;
             reader_leave(m->game_sync);
 
-            bool pipe_available = (m->pipes[i] != -1 && !is_blocked);
-            if (pipe_available) {
+            if (m->pipes[i] != -1 && !is_blocked) {
                 if (FD_ISSET(m->pipes[i], &m->pipes_set)) {
                     if (!check_player(m, i)) {
                         last_time = time(NULL);

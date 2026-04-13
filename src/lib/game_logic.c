@@ -9,24 +9,6 @@
 #include "include/process_manager.h"
 #include "include/game_logic.h"
 
-typedef struct masterCDT {
-    int    width;
-    int    height;
-    int    delay_ms;
-    int    timeout_s;
-    long   seed;
-    char  *view_path;
-    char  *player_paths[MAX_PLAYERS];
-    int    n_players;
-    int    pipes[MAX_PLAYERS];
-    int    pipes_max_fd;
-    fd_set pipes_set;
-    GameState *game_state;
-    SyncData  *game_sync;
-    int        last_player;
-} masterCDT;
-
-typedef masterCDT * masterADT;
 
 const int dx[] = { 0,  1,  1,  1,  0, -1, -1, -1 };
 const int dy[] = {-1, -1,  0,  1,  1,  1,  0, -1 };
@@ -95,8 +77,7 @@ void print_winner(GameState *gs) {
 
     int is_tie = 0;
     for (int i = 0; i < (int)gs->n_players; i++) {
-        bool is_other_player = (i != winner);
-        if (is_other_player) {
+        if (i != winner) {
             PlayerInfo *w = &gs->players[winner];
             PlayerInfo *p = &gs->players[i];
             if (p->score == w->score &&
@@ -130,11 +111,10 @@ void print_final_results(GameState *gs) {
 int no_player_can_move(masterADT m) {
     reader_enter(m->game_sync);
     int all_blocked = 1;
-    bool found_active_player = false;
-    for (int i = 0; i < m->n_players && !found_active_player; i++) {
+    for (int i = 0; i < m->n_players; i++) {
         if (!m->game_state->players[i].blocked) {
             all_blocked = 0;
-            found_active_player = true;
+            break;
         }
     }
     reader_leave(m->game_sync);

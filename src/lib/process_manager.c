@@ -13,24 +13,6 @@
 #include "include/process_manager.h"
 #include "include/game_logic.h"
 
-typedef struct masterCDT {
-    int    width;
-    int    height;
-    int    delay_ms;
-    int    timeout_s;
-    long   seed;
-    char  *view_path;
-    char  *player_paths[MAX_PLAYERS];
-    int    n_players;
-    int    pipes[MAX_PLAYERS];
-    int    pipes_max_fd;
-    fd_set pipes_set;
-    GameState *game_state;
-    SyncData  *game_sync;
-    int        last_player;
-} masterCDT;
-
-typedef masterCDT * masterADT;
 
 // Crea la estructura de estado del juego en memoria compartida
 GameState *create_game_state(int width, int height) {
@@ -208,8 +190,7 @@ void build_pipes_set(masterADT m) {
     FD_ZERO(&m->pipes_set);
     m->pipes_max_fd = 0;
     for (int i = 0; i < m->n_players; i++) {
-        bool pipe_active = (m->pipes[i] != -1);
-        if (pipe_active) {
+        if (m->pipes[i] != -1) {
             FD_SET(m->pipes[i], &m->pipes_set);
             if (m->pipes[i] > m->pipes_max_fd)
                 m->pipes_max_fd = m->pipes[i];
@@ -247,8 +228,7 @@ void cleanup(GameState *gs, SyncData *sd, masterADT master,
     }
 
     for (int i = 0; i < total_pids; i++) {
-        bool valid_pid = (pids[i] > 0);
-        if (valid_pid) {
+        if (pids[i] > 0) {
             int status;
             waitpid(pids[i], &status, 0);  // Bloquear y esperar a que termine
         }

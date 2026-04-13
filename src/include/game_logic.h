@@ -4,11 +4,7 @@
 #ifndef GAME_LOGIC_H
 #define GAME_LOGIC_H
 
-#include "shared.h"
-
-// Forward declaration
-typedef struct masterCDT masterCDT;
-typedef masterCDT * masterADT;
+#include "process_manager.h"
 
 // Deltas para las 8 direcciones: 0=arriba, sentido horario
 // dir:  0   1   2   3   4   5   6   7

@@ -105,9 +105,8 @@ int main(int argc, char *argv[]) {
         reader_enter(sd);
         int over = gs->game_over;
         reader_leave(sd);
-        bool game_ended = over;
 
-        if (!game_ended) {
+        if (!over) {
             reader_enter(sd);
             int current_x = (int)gs->players[my_id].x;
             int current_y = (int)gs->players[my_id].y;
