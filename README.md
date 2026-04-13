@@ -43,8 +43,9 @@ make
 # - jugador   (jugador BalancedPlayer - análisis local de seguridad)
 ```
 
-### Compilación en Docker
+### Compilación en Docker desde Script
 ```bash
+chmod 777 run.sh
 ./run.sh [N_JUGADORES]
 
 # Ejemplos:
@@ -57,10 +58,20 @@ El script `run.sh` automáticamente:
 - Monta el directorio actual en `/SO/TPE_ChompChamps`
 - Compila el código
 - Ejecuta master con N jugadores aleatorios
+- Observacion: En caso de realizar Ctrl+C en el medio de este script, la terminal se queda en blanco y no vuelve a andar hasta que se reinicie el editor. Esto no constituye ningun problema, pues cuando se ejecuta de manera directa el programa, en el momento que se realiza Ctrl+C, se cierra de manera correcta.
 
-### Ejecución Directa (Local)
+### Ejecución Directa en Docker
 
 ```bash
+#Se ingresa al docker
+docker run -v "${PWD}:/SO/TPE_ChompChamps" --privileged -ti agodio/itba-so-multiarch:3.1
+
+#Se mueve hacia la carpeta donde esta ubicado el proyecto
+cd /SO/TPE_ChompChamps
+
+#Se compila el proyecto
+make
+
 # Forma más simple (vista + jugador)
 ./master -v ./vista -p ./jugador
 
@@ -80,54 +91,19 @@ El script `run.sh` automáticamente:
 | `-v` | VISTA_PATH | - | Ruta ejecutable de la vista |
 | `-p` | PLAYER_PATHS | - | Rutas de ejecutables de jugadores (min. 1) |
 
----
 
-## Scripts de Testing y Debugging
-
-### 1. **`run.sh`** - Compilación y Ejecución en Docker
-```bash
-./run.sh [N_JUGADORES]
-```
-Automatiza compilación en docker + ejecución inmediata con N jugadores aleatorios.
-
-### 2. **`check-code.sh`** - Análisis Estático con PVS-Studio
-```bash
-./check-code.sh
-```
-Ejecuta análisis estático para detectar:
-- Posibles overflows (V1028)
-- Data races (V547)
-- Otros warnings de seguridad e implementación
-
-Genera reportes en:
-- `report.txt` (formato texto)
-- `report.html` (visualización en navegador)
-
-### 3. **`ver-pipes.sh`** - Monitoreo de Pipes y Procesos
-```bash
-./ver-pipes.sh
-```
-Durante ejecución monitorea:
-- File descriptors abiertos del master
-- Procesos hijo y sus conexiones
-- Limpieza de recursos al finalizar
-- Detecta pipes residuales o procesos zombies
----
-
----
-
-## Rutas Relativas para Ejecución
+## Rutas Relativas para Ejecución en Torneo
 
 ### Player Disponible
 
 ```bash
-./jugador           # BalancedPlayer - análisis local de grados de libertad + puntos
+./jugador
 ```
 
 ### Vista Disponible
 
 ```bash
-./vista             # Visualización ASCII estándar (recomendado)
+./vista      
 ```
 ---
 
@@ -139,7 +115,9 @@ Durante ejecución monitorea:
 
 2. **Tamaño Mínimo de Tablero**: 10x10
    - Auto-ajuste: si se pasan valores menores, se fuerzan a 10
-   
+
+3. **Vista en Terminal**
+   - La vista fue hecha para verse desde la terminal es decir se modifica segun el tamaño de la terminal.
 ---
 
 ## Problemas Encontrados y Soluciones
@@ -267,20 +245,6 @@ while (1) {
 
 **Impacto**: Patrón explícito de sincronización, eliminación de data race potencial.
 
-**Scripts de Debugging**:
-Dos scripts creados con asistencia de IA para facilitar debugging y análisis:
-
-- **`check-code.sh`**: Automatiza análisis estático con PVS-Studio
-  - Ejecuta `pvs-studio-analyzer` para detectar posibles vulnerabilidades
-  - Genera reportes en texto e HTML para revisión
-  - Fue utilizado para identificar warnings V1028 (overflow) y V547 (data races)
-
-- **`ver-pipes.sh`**: Monitorea pipes durante ejecución
-  - Usa `lsof` para inspeccionar file descriptors abiertos del master
-  - Rastrea procesos hijo y sus conexiones
-  - Verifica limpieza de recursos al finalizar
-  - Ayuda a confirmar que no quedan pipes residuales o zombies
-
 **Colorización en vista.c**:
 El array `player_colors[]` en vista.c fue desarrollado con asistencia de IA para visualizar jugadores diferenciados:
 
@@ -300,6 +264,9 @@ static const char *player_colors[] = {
 ```
 
 Permite identificar visualmente a cada jugador de 0-8 en la visualización del tablero.
+
+**Debugging**:
+Para entender algunos casos de error Valgrind, PVS-Studio, y poder tener acceso a comandos con filtros mas avanzados, como seria el caso de lsof o ps ajx | less, se recurrio a la IA para poder tener un entendimiento completo de estos.
 
 ---
 

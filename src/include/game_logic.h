@@ -37,4 +37,7 @@ int check_player(masterADT m, int i);
 // Finaliza el juego: marca game_over, despierta jugadores, notifica vista
 void end_game(masterADT m);
 
+// Imprime la configuración inicial del juego
+void print_config(masterADT m);
+
 #endif

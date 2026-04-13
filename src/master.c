@@ -170,6 +170,7 @@ int main(int argc, char *argv[]) {
     int total_pids = spawn_game_processes(master, write_ends, pids);
 
     master->last_player = master->n_players - 1;  // primera iteración arranca en jugador 0
+    print_config(master);
     game_start(master);
 
     // Cerrar pipes ANTES de cleanup para evitar que jugadores queden bloqueados escribiendo

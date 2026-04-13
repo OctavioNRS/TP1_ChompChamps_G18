@@ -204,3 +204,17 @@ void end_game(masterADT m) {
         sem_wait(&m->game_sync->view_done);
     }
 }
+
+void print_config(masterADT m) {
+    printf("width: %d\n", m->width);
+    printf("height: %d\n", m->height);
+    printf("delay: %d\n", m->delay_ms);
+    printf("timeout: %d\n", m->timeout_s);
+    printf("seed: %ld\n", m->seed);
+    printf("view: %s\n", m->view_path ? m->view_path : "null");
+    printf("num_players: %d\n", m->n_players);
+    for (int i = 0; i < m->n_players; i++) {
+        printf("  %s\n", m->player_paths[i]);
+    }
+}
+

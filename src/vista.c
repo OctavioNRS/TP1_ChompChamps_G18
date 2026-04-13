@@ -10,9 +10,7 @@
 #include <semaphore.h>
 #include "include/shared.h"
 
-// ═══════════════════════════════════════════
 // ANSI escape codes
-// ═══════════════════════════════════════════
 
 #define CLEAR_SCREEN    "\033[2J\033[H"
 #define RESET           "\033[0m"
@@ -120,13 +118,17 @@ int main(int argc, char *argv[]) {
         sem_wait(&sd->view_ready);
 
         printf(CLEAR_SCREEN);
+        reader_enter(sd);
         draw_board(gs);
         draw_players(gs);
+        reader_leave(sd);
         fflush(stdout);
 
         sem_post(&sd->view_done);
 
+        reader_enter(sd);
         should_render = !gs->game_over;
+        reader_leave(sd);
     }
 
     shm_close_game_state(gs, width, height);
