@@ -310,6 +310,16 @@ static const char *player_colors[] = {
 
 Permite identificar visualmente a cada jugador de 0-8 en la visualización del tablero.
 
+### 6. **Los jugadores no conocen su PID cuando recien aparecen.**
+Problema:
+Cada jugador necesita saber su indice dentro del array de jugadores de la memoria compartida para poder leer su posicion, puntaje y usar el semaforo player_ack[i] que le corresponde.
+
+Solucion:
+El master escribe el PID del proceso hijo en gs->players[i].pid inmediatamente despues del fork, antes de continuar con el loop principal. Como fork retorna primero en el padre, cuando el hijo comienza a ejecutar su logica el PID ya esta escrito en la memoria compartida. El jugador simplemente busca su propio PID con getpid() recorriendo el array de jugadores.
+
+
+
+
 ---
 
 ## Herramientas Utilizadas en Desarrollo
@@ -318,6 +328,8 @@ Permite identificar visualmente a cada jugador de 0-8 en la visualización del t
 - **Debugger**: GDB con flags (`-g`) - Análisis de comportamiento de procesos
 - **Control de versiones**: Git - Modularización incremental por PR
 - **Utilities**: strace, valgrind (memory leaks), ps/top (monitoreo procesos)
+
+
 
 ---
 
