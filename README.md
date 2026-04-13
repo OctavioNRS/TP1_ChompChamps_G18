@@ -274,6 +274,10 @@ static const char *player_colors[] = {
 
 Permite identificar visualmente a cada jugador de 0-8 en la visualización del tablero.
 
+**Debugging**:
+Para entender algunos casos de error Valgrind, PVS-Studio, y poder tener acceso a comandos con filtros mas avanzados, como seria el caso de lsof o ps ajx | less, se recurrio a la IA para poder tener un entendimiento completo de estos.
+
+
 ---
 
 ## Herramientas Utilizadas en Desarrollo
